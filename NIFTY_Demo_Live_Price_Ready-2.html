@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="te">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NIFTY & Stock Demo Trading Assistant</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#131f33;--line:#263752;--muted:#9fb0c8;--txt:#eef4ff;--blue:#4da3ff;--green:#35c78a;--red:#ff6b75;--amber:#ffc45c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px system-ui,-apple-system,Segoe UI,sans-serif;padding:16px}.wrap{max-width:850px;margin:auto}h1{font-size:23px;margin:8px 0}h2{font-size:18px;margin:0 0 12px}.sub,.muted{color:var(--muted);font-size:13px}.card{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:16px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}label{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}input,select{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;background:#0b1628;color:var(--txt);font-size:16px}button{border:0;border-radius:10px;padding:12px 16px;background:var(--blue);color:#071322;font-weight:700;font-size:15px;margin:8px 8px 0 0}button.secondary{background:#31445f;color:white}button.danger{background:#73313b;color:white}.notice{padding:12px;border-radius:10px;background:#2c2517;color:#ffe0a0;border:1px solid #6b5325;margin:10px 0}.result{padding:12px;border-radius:10px;background:#0c1728;border:1px solid var(--line);margin-top:12px}.big{font-size:24px;font-weight:800}.green{color:var(--green)}.red{color:var(--red)}.amber{color:var(--amber)}.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stat{padding:10px;background:#0c1728;border-radius:9px}.stat b{display:block;font-size:18px;margin-top:4px}.hidden{display:none}.trade{border-top:1px solid var(--line);padding:10px 0}.pill{display:inline-block;border-radius:20px;padding:4px 9px;background:#263752;font-size:12px}
+@media(max-width:560px){.grid,.stats{grid-template-columns:1fr}body{padding:10px}}
+</style></head>
+<body><main class="wrap">
+<h1>📈 NIFTY & Stock Demo Trading Assistant</h1><div class="sub">Manual-input practice tool · Live market feed / broker orders are NOT connected</div>
+<section class="card" id="liveMarketCard" aria-live="polite">
+  <h2>Live NIFTY Market Price</h2>
+  <div class="stats">
+    <div class="stat">NIFTY 50 Live Price<b id="liveNiftyPrice">Not connected</b></div>
+    <div class="stat">Connection Status<b id="liveConnectionStatus" class="amber">Waiting for secure API connection</b></div>
+  </div>
+  <p class="muted" id="livePricePlaceholder">Live price will appear here after secure Upstox connection.</p>
+  <p class="muted" id="liveMarketNote">ఇది ప్రస్తుతం ధర చూపించడం లేదు. Upstox APIకి సురక్షితమైన backend కనెక్ట్ చేసిన తర్వాత మాత్రమే నిజమైన live ధర ఇక్కడ కనిపిస్తుంది.</p>
+</section>
+<div class="notice"><b>ముఖ్యమైన జాగ్రత్త:</b> మీరు ఎంచుకున్న Instrument ధర, EMA 9, EMA 21, VWAP అన్నీ అదే Instrument యొక్క పూర్తయిన 5-minute candle డేటా అయి ఉండాలి. OLA ధరను NIFTY ధరగా నమోదు చేయకండి.</div>
+<section class="card"><h2>1. Instrument & Market Data</h2>
+<div class="grid">
+<div><label for="instrument">Instrument</label><select id="instrument"><option value="NIFTY">NIFTY 50 Index</option><option value="OLAELEC">OLA Electric (OLAELEC)</option><option value="OTHER">Other Stock / Index</option></select></div>
+<div><label for="symbol">Symbol / Name</label><input id="symbol" value="NIFTY 50" readonly></div>
+<div><label for="price">Selected instrument price</label><input id="price" type="number" step="0.01" placeholder="ఉదా: NIFTY 25,299 లేదా OLA 35.74"></div>
+<div><label for="ema9">EMA 9</label><input id="ema9" type="number" step="0.01" placeholder="EMA 9"></div>
+<div><label for="ema21">EMA 21</label><input id="ema21" type="number" step="0.01" placeholder="EMA 21"></div>
+<div><label for="vwap">VWAP</label><input id="vwap" type="number" step="0.01" placeholder="VWAP"></div>
+<div><label for="rsi">RSI 14</label><input id="rsi" type="number" step="0.01" min="0" max="100" placeholder="0–100"></div>
+<div><label for="candle">5-minute candle closed?</label><select id="candle"><option value="no">No / Not sure</option><option value="yes">Yes, candle closed</option></select></div>
+</div><button id="analyze">Analyze Signal</button><button class="secondary" id="reset">Reset values</button>
+<div id="signal" class="result"><span class="pill">WAIT</span><p class="muted">డేటా నమోదు చేసి Analyze నొక్కండి.</p></div>
+</section>
+<section class="card"><h2>2. Option Premium Risk Calculator</h2>
+<div class="notice">ఇక్కడ CE/PE contract యొక్క Option Chain LTP మాత్రమే నమోదు చేయండి. NIFTY Index ధర లేదా OLA share ధరను Option Premium గా నమోదు చేయకండి.</div>
+<div class="grid">
+<div><label for="optType">Option Type</label><select id="optType"><option>BUY CE</option><option>BUY PE</option></select></div>
+<div><label for="premium">Actual CE/PE Option Premium (₹)</label><input id="premium" type="number" step="0.05" min="0.05" placeholder="ఉదా: 100"></div>
+<div><label for="qty">Quantity (units)</label><input id="qty" type="number" min="1" value="65"></div>
+</div><button id="calc">Calculate premium levels</button>
+<div id="premiumError" class="muted" role="alert"></div>
+<div class="stats" id="premiumStats" style="margin-top:12px">
+<div class="stat">Premium Stop Loss<b id="sl">—</b></div><div class="stat">Premium Target<b id="target">—</b></div><div class="stat">Risk / unit<b id="risk">—</b></div><div class="stat">Reward / unit<b id="reward">—</b></div>
+</div>
+</section>
+<section class="card"><h2>3. Paper Trade Tracker</h2>
+<div class="grid"><div><label for="exit">Exit Premium (₹), optional</label><input id="exit" type="number" step="0.05" placeholder="Trade exit అయినప్పుడు"></div></div>
+<button id="save">Save demo trade</button><button class="secondary" id="clearExit">Clear exit</button><div id="history" class="result"><span class="muted">ఇంకా demo trades లేవు.</span></div><button class="danger" id="clearHistory">Clear demo history</button>
+</section>
+<div class="sub">Educational demo only. Signals are rule-based and depend entirely on manually entered values. No live data, financial advice, automatic alerts, or real orders. Before any real trade, independently verify the instrument, contract, expiry, lot size, and risk.</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);let lastCalc=null;
+const fmt=n=>'₹'+Number(n).toFixed(2);
+$('instrument').addEventListener('change',()=>{const v=$('instrument').value;const names={NIFTY:'NIFTY 50',OLAELEC:'OLA Electric (OLAELEC)',OTHER:'Other Stock / Index'};$('symbol').value=names[v];$('price').value='';$('ema9').value='';$('ema21').value='';$('vwap').value='';$('rsi').value='';$('signal').innerHTML='<span class="pill">WAIT</span><p class="muted">Instrument మార్చబడింది. కొత్త instrument కు సంబంధించిన తాజా డేటా నమోదు చేయండి.</p>';});
+function nums(ids){return ids.map(id=>$(id).value.trim()===''?NaN:Number($(id).value));}
+$('analyze').onclick=()=>{const [p,e9,e21,v,r]=nums(['price','ema9','ema21','vwap','rsi']);const inst=$('instrument').value;let issue='';
+if([p,e9,e21,v,r].some(x=>!Number.isFinite(x)))issue='అన్ని market fields నమోదు చేయండి. ఖాళీ లేదా తప్పు విలువలతో signal ఇవ్వలేము.';
+else if(p<=0||e9<=0||e21<=0||v<=0||r<0||r>100)issue='ధరలు సున్నా కంటే ఎక్కువగా ఉండాలి; RSI 0 నుంచి 100 మధ్య ఉండాలి.';
+else if(inst==='NIFTY'&&p<1000)issue='NIFTY Index ధర చాలా తక్కువగా ఉంది. ₹35.74 వంటి share/option ధరను ఇక్కడ నమోదు చేసినట్టు ఉంది. సరైన NIFTY Index value నమోదు చేయండి.';
+else if(inst==='OLAELEC'&&p>10000)issue='OLA share ధర అసాధారణంగా ఎక్కువగా ఉంది. సరైన OLA share price పరిశీలించండి.';
+else if($('candle').value!=='yes')issue='5-minute candle close confirmation లేదు. WAIT.';
+if(issue){$('signal').innerHTML='<span class="pill amber">WAIT</span><p class="amber">'+issue+'</p>';return;}
+let sig='WAIT',why='సిగ్నల్ నియమాలు పూర్తిగా సరిపోలలేదు.';
+if(p>e9&&e9>e21&&p>v&&r>=55&&r<=70){sig='BUY CE';why='Bullish alignment: Price > EMA 9 > EMA 21, Price > VWAP, RSI 55–70.';}
+else if(p<e9&&e9<e21&&p<v&&r>=30&&r<=45){sig='BUY PE';why='Bearish alignment: Price < EMA 9 < EMA 21, Price < VWAP, RSI 30–45.';}
+$('signal').innerHTML='<span class="pill">'+sig+'</span><p><b>'+$('symbol').value+'</b> · '+fmt(p)+'</p><p class="muted">'+why+'</p><p class="muted">ఇది manual demo candidate మాత్రమే; live recommendation కాదు.</p>';if(sig!=='WAIT')$('optType').value=sig;
+};
+$('reset').onclick=()=>{['price','ema9','ema21','vwap','rsi'].forEach(id=>$(id).value='');$('candle').value='no';$('signal').innerHTML='<span class="pill">WAIT</span><p class="muted">డేటా నమోదు చేసి Analyze నొక్కండి.</p>';};
+function calculate(){const raw=$('premium').value.trim();const p=raw===''?NaN:Number(raw);$('premiumError').textContent='';lastCalc=null;['sl','target','risk','reward'].forEach(id=>$(id).textContent='—');if(!Number.isFinite(p)||p<=0){$('premiumError').textContent='దయచేసి నిజమైన CE/PE Option Premium నమోదు చేయండి.';return false;}if(p>10000){$('premiumError').textContent='ఈ విలువ NIFTY Index ధరలా కనిపిస్తోంది. Option Chain లో ఎంచుకున్న CE/PE contract LTP నమోదు చేయండి.';return false;}const sl=p*.9,t=p*1.2;lastCalc={p,sl,t,risk:p-sl,reward:t-p};$('sl').textContent=fmt(sl);$('target').textContent=fmt(t);$('risk').textContent=fmt(p-sl);$('reward').textContent=fmt(t-p);return true;}
+$('calc').onclick=calculate;$('premium').addEventListener('input',()=>{lastCalc=null;['sl','target','risk','reward'].forEach(id=>$(id).textContent='—');$('premiumError').textContent='Premium మార్చారు. కొత్త లెక్కల కోసం Calculate నొక్కండి.';});
+function getHistory(){try{return JSON.parse(localStorage.getItem('demoTradesV2')||'[]')}catch(e){return[]}}
+function render(){const h=getHistory();$('history').innerHTML=h.length?h.slice().reverse().map(t=>`<div class="trade"><b>${t.symbol} · ${t.type}</b><br><span class="muted">${t.time} · Entry ${fmt(t.entry)} · SL ${fmt(t.sl)} · Target ${fmt(t.target)} · Qty ${t.qty}</span>${t.exit!==null?`<br>Exit ${fmt(t.exit)} · P/L <b class="${t.pnl>=0?'green':'red'}">${fmt(t.pnl)}</b>`:''}</div>`).join(''):'<span class="muted">ఇంకా demo trades లేవు.</span>';}
+$('save').onclick=()=>{if(!lastCalc&&!calculate())return;const qty=Number($('qty').value);if(!Number.isInteger(qty)||qty<=0){$('premiumError').textContent='Quantity సరైన units లో నమోదు చేయండి.';return;}const exraw=$('exit').value.trim();const exit=exraw===''?null:Number(exraw);if(exit!==null&&(!Number.isFinite(exit)||exit<0)){ $('premiumError').textContent='Exit Premium సరైనది కాదు.';return;}const t={symbol:$('symbol').value,type:$('optType').value,entry:lastCalc.p,sl:lastCalc.sl,target:lastCalc.t,qty,exit,pnl:exit===null?null:(exit-lastCalc.p)*qty,time:new Date().toLocaleString('en-IN')};const h=getHistory();h.push(t);localStorage.setItem('demoTradesV2',JSON.stringify(h));render();$('premiumError').textContent='Demo trade save అయింది.';};
+$('clearExit').onclick=()=>$('exit').value='';$('clearHistory').onclick=()=>{if(confirm('Demo history మొత్తం తొలగించాలా?')){localStorage.removeItem('demoTradesV2');render();}};render();
+</script></body></html>
