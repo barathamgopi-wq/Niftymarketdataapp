@@ -82,7 +82,6 @@ app.listen(PORT, () => {
     } catch (error) {
         console.error("Market data parse error:", error.message);
     }
-});
 
   });
 
