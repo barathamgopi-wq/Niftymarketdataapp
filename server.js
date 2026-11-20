@@ -1,5 +1,4 @@
 
-
 const express = require("express");
 const Upstox = require("upstox-js-sdk");
 const dns = require("dns");
@@ -7,6 +6,14 @@ const dns = require("dns");
 dns.setDefaultResultOrder("ipv4first");
 
 const app = express();
+
+// Allow the HTML page to read live market data
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET");
+  next();
+});
+
 const PORT = process.env.PORT || 3000;
 
 let latestNiftyData = null;
@@ -68,21 +75,20 @@ app.listen(PORT, () => {
   });
 
   streamer.on("message", (data) => {
-  
-  try {
-        const message = Buffer.isBuffer(data)
-            ? data.toString("utf8")
-            : data;
+    try {
+      const message = Buffer.isBuffer(data)
+        ? data.toString("utf8")
+        : data;
 
-        latestNiftyData = typeof message === "string"
-            ? JSON.parse(message)
-            : message;
+      latestNiftyData =
+        typeof message === "string"
+          ? JSON.parse(message)
+          : message;
 
-        console.log("NIFTY market update received");
+      console.log("NIFTY market update received");
     } catch (error) {
-        console.error("Market data parse error:", error.message);
+      console.error("Market data parse error:", error.message);
     }
-
   });
 
   streamer.on("error", (error) => {
