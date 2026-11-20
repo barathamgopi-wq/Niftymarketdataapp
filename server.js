@@ -1,4 +1,5 @@
 
+
 const express = require("express");
 const Upstox = require("upstox-js-sdk");
 const dns = require("dns");
@@ -67,8 +68,22 @@ app.listen(PORT, () => {
   });
 
   streamer.on("message", (data) => {
-    latestNiftyData = data;
-    console.log("NIFTY market update received");
+  
+  try {
+        const message = Buffer.isBuffer(data)
+            ? data.toString("utf8")
+            : data;
+
+        latestNiftyData = typeof message === "string"
+            ? JSON.parse(message)
+            : message;
+
+        console.log("NIFTY market update received");
+    } catch (error) {
+        console.error("Market data parse error:", error.message);
+    }
+});
+
   });
 
   streamer.on("error", (error) => {
