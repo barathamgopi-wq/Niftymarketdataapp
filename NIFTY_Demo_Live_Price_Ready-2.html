@@ -1,249 +1,310 @@
-<!doctype html>
-<html lang="te">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NIFTY Automatic Demo Trading</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NIFTY Demo Trading Dashboard</title>
 <style>
-:root{color-scheme:dark;--bg:#0b1220;--panel:#131f33;--line:#263752;--muted:#9fb0c8;--txt:#eef4ff;--blue:#4da3ff;--green:#35c78a;--red:#ff6b75;--amber:#ffc45c}
 *{box-sizing:border-box}
-body{margin:0;padding:12px;background:var(--bg);color:var(--txt);font:15px system-ui,sans-serif}
-.wrap{max-width:900px;margin:auto}
-h1{font-size:22px}h2{font-size:17px;margin:0 0 12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px;margin:12px 0}
-.sub,.muted{color:var(--muted);font-size:13px}
-.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.stat{background:#0c1728;padding:12px;border-radius:9px;min-width:0}
-.stat b{display:block;font-size:19px;margin-top:5px;overflow-wrap:anywhere}
-.green{color:var(--green)}.red{color:var(--red)}.amber{color:var(--amber)}
-button{border:0;border-radius:9px;padding:11px 15px;background:var(--blue);font-weight:700;margin:8px 5px 0 0}
-button.secondary{background:#31445f;color:white}
-.notice{background:#2c2517;color:#ffe0a0;padding:11px;border-radius:9px;margin:10px 0}
-.trade{border-top:1px solid var(--line);padding:11px 0}
-.pill{display:inline-block;border-radius:20px;padding:4px 9px;background:#263752;font-size:12px}
-.row{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-@media(max-width:560px){.stats{grid-template-columns:1fr}body{padding:8px}}
+body{margin:0;background:#0b1220;color:#e7edf7;font-family:Arial,sans-serif}
+header{background:#121d30;padding:18px;text-align:center;border-bottom:1px solid #263650}
+header h1{margin:0;color:#38bdf8;font-size:23px}
+header p{margin:6px 0 0;color:#a8b7ce;font-size:13px}
+.container{max-width:1050px;margin:auto;padding:14px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.card{background:#131e31;border:1px solid #253650;border-radius:12px;padding:15px;margin-bottom:12px}
+.card h3{margin:0 0 12px;color:#8bd5ff;font-size:15px}
+.price{font-size:30px;font-weight:bold;color:#fff}
+.green{color:#22c55e!important}
+.red{color:#f87171!important}
+.yellow{color:#fbbf24!important}
+.small{font-size:12px;color:#9fb0c9}
+.row{display:flex;justify-content:space-between;gap:8px;margin:9px 0}
+.value{font-weight:bold}
+button{border:0;border-radius:8px;padding:10px 13px;background:#0284c7;color:white;font-weight:bold;cursor:pointer}
+button:active{opacity:.7}
+input,select{width:100%;padding:10px;margin:6px 0;background:#0b1220;color:white;border:1px solid #33465f;border-radius:7px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:9px;border-bottom:1px solid #263650;text-align:left}
+th{color:#8bd5ff}
+.badge{display:inline-block;padding:5px 8px;border-radius:6px;background:#263650;font-size:12px}
+.status{padding:8px;border-radius:7px;background:#1d2a40;margin-bottom:10px}
+.footer{text-align:center;color:#71849e;font-size:12px;padding:15px}
+@media(max-width:600px){
+ .grid{grid-template-columns:1fr}
+ header h1{font-size:20px}
+ .price{font-size:26px}
+}
 </style>
 </head>
 <body>
-<main class="wrap">
-<h1>📈 NIFTY Automatic Demo Trading</h1>
-<div class="sub">Railway + Upstox Feed · Paper Trading Only · Real Orders Disabled</div>
 
-<section class="card">
-<h2>1. Live Market</h2>
-<div class="stats">
- <div class="stat">NIFTY 50 LTP<b id="nifty">Loading...</b></div>
- <div class="stat">Feed Status<b id="feed" class="amber">Checking...</b></div>
- <div class="stat">Last Feed Update<b id="feedTime">—</b></div>
- <div class="stat">Backend Status<b id="backend" class="amber">Checking...</b></div>
+<header>
+<h1>📈 NIFTY Demo Trading</h1>
+<p>Live Market Data • Paper Trading Only • No Real Orders</p>
+</header>
+
+<div class="container">
+
+<div class="status" id="connectionStatus">
+Connecting to market data server...
 </div>
-<p class="muted" id="marketMessage">Backend నుంచి డేటా తీసుకుంటోంది.</p>
-</section>
 
-<section class="card">
-<h2>2. Automatic Demo Settings</h2>
-<div class="stats">
- <div class="stat">Demo Trading<b id="demoEnabled">—</b></div>
- <div class="stat">Real Orders<b id="realOrders" class="green">—</b></div>
- <div class="stat">Target<b id="target">—</b></div>
- <div class="stat">Stop Loss<b id="stop">—</b></div>
- <div class="stat">Refresh Interval<b>10 Seconds</b></div>
- <div class="stat">Trading Status<b id="tradeStatus">—</b></div>
+<div class="grid">
+<div class="card">
+<h3>NIFTY LIVE PRICE</h3>
+<div class="price" id="niftyPrice">--</div>
+<div class="small" id="priceTime">Waiting for data...</div>
 </div>
-</section>
 
-<section class="card">
-<h2>3. Market Indicators</h2>
-<div class="stats">
- <div class="stat">EMA 9<b id="ema9">—</b></div>
- <div class="stat">EMA 21<b id="ema21">—</b></div>
- <div class="stat">VWAP<b id="vwap">—</b></div>
- <div class="stat">RSI 14<b id="rsi">—</b></div>
- <div class="stat">Completed Candles<b id="candles">—</b></div>
- <div class="stat">Signal / Status<b id="signal">Waiting</b></div>
+<div class="card">
+<h3>MARKET STATUS</h3>
+<div class="row"><span>Status</span><span class="value" id="marketStatus">--</span></div>
+<div class="row"><span>Feed</span><span class="value" id="feedStatus">--</span></div>
+<div class="row"><span>Last Update</span><span class="value" id="lastUpdate">--</span></div>
 </div>
-<p class="muted" id="indicatorMessage">Indicators కోసం ఎదురుచూస్తోంది.</p>
-</section>
 
-<section class="card">
-<h2>4. Open Demo Trades</h2>
-<div id="openTrades" class="muted">Loading...</div>
-</section>
-
-<section class="card">
-<h2>5. Demo Trading Summary</h2>
-<div class="stats">
- <div class="stat">Total Trades<b id="totalTrades">0</b></div>
- <div class="stat">Open Trades<b id="openCount">0</b></div>
- <div class="stat">Closed Trades<b id="closedCount">0</b></div>
- <div class="stat">Total P/L<b id="totalPnl">₹0.00</b></div>
- <div class="stat">Winning Trades<b id="wins">—</b></div>
- <div class="stat">Losing Trades<b id="losses">—</b></div>
- <div class="stat">Win Rate<b id="winRate">—</b></div>
+<div class="card">
+<h3>📊 TECHNICAL INDICATORS</h3>
+<div class="row"><span>EMA 9</span><span class="value" id="ema9">--</span></div>
+<div class="row"><span>EMA 21</span><span class="value" id="ema21">--</span></div>
+<div class="row"><span>VWAP</span><span class="value" id="vwap">--</span></div>
+<div class="row"><span>RSI</span><span class="value" id="rsi">--</span></div>
+<div class="row"><span>Signal</span><span class="badge" id="signal">--</span></div>
 </div>
-</section>
 
-<section class="card">
-<h2>6. Closed Demo Trade History</h2>
-<div id="history" class="muted">Loading...</div>
-</section>
-
-<section class="card">
-<h2>7. Connection Details</h2>
-<p class="muted" id="lastRefresh">Last refresh: —</p>
-<p class="muted" id="errors">No errors reported.</p>
-<button id="refresh">Refresh Now</button>
-<button class="secondary" id="sound">Enable Sound Alerts</button>
-<p class="muted" id="soundStatus">Sound alerts are off until enabled.</p>
-</section>
-
-<div class="notice">
-<b>గమనిక:</b> ఇది Demo Trading మాత్రమే. Real Orders పంపదు. Live Market, Option Premium, Entry/Exit మరియు History అన్నీ Backend అందించే డేటాపైనే ఆధారపడి ఉంటాయి.
+<div class="card">
+<h3>🤖 AUTO DEMO TRADING</h3>
+<div class="row"><span>System</span><span class="value" id="autoStatus">--</span></div>
+<div class="row"><span>Open Demo Trade</span><span class="value" id="openTrade">--</span></div>
+<div class="row"><span>Today's Demo P&amp;L</span><span class="value" id="todayPnl">--</span></div>
+<div class="row"><span>Risk Status</span><span class="value" id="riskStatus">--</span></div>
+<div class="row"><span>Last Signal</span><span class="value" id="lastSignal">--</span></div>
 </div>
-</main>
+</div>
+
+<div class="card">
+<h3>🧮 OPTION PREMIUM CALCULATOR (Practice)</h3>
+<div class="grid">
+<div>
+<label>Demo Buy Premium</label>
+<input id="buyPrice" type="number" value="100" step="0.05">
+</div>
+<div>
+<label>Quantity</label>
+<input id="quantity" type="number" value="1" min="1">
+</div>
+<div>
+<label>Target %</label>
+<input id="targetPercent" type="number" value="20">
+</div>
+<div>
+<label>Stop Loss %</label>
+<input id="stopPercent" type="number" value="10">
+</div>
+</div>
+<button onclick="calculate()">Calculate</button>
+<div class="row"><span>Target Premium</span><span class="value green" id="targetPremium">--</span></div>
+<div class="row"><span>Stop Loss Premium</span><span class="value red" id="stopPremium">--</span></div>
+<div class="row"><span>Maximum Demo Profit</span><span class="value green" id="maxProfit">--</span></div>
+<div class="row"><span>Maximum Demo Loss</span><span class="value red" id="maxLoss">--</span></div>
+<div class="small">Calculator is for learning only. It does not place trades.</div>
+</div>
+
+<div class="card">
+<h3>📜 AUTO DEMO TRADE HISTORY</h3>
+<div style="overflow-x:auto">
+<table>
+<thead>
+<tr>
+<th>Date/Time</th>
+<th>Instrument</th>
+<th>Type</th>
+<th>Entry</th>
+<th>Exit</th>
+<th>P&amp;L</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody id="tradeHistory">
+<tr><td colspan="7">Waiting for demo trade history...</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+
+<div class="card">
+<h3>ℹ️ SYSTEM INFORMATION</h3>
+<div class="row"><span>Backend</span><span class="value" id="backendUrl">--</span></div>
+<div class="row"><span>Refresh Interval</span><span class="value">10 Seconds</span></div>
+<div class="row"><span>Trading Mode</span><span class="value yellow">DEMO / PAPER ONLY</span></div>
+<button onclick="refreshAll()">🔄 Refresh Now</button>
+</div>
+
+<div class="footer">
+Bharatham Gopi • NIFTY Demo Trading Dashboard<br>
+Paper Trading Only — No Real Orders
+</div>
+
+</div>
 
 <script>
-const API="https://niftymarketdataapp-production.up.railway.app";
-const $=id=>document.getElementById(id);
-let soundEnabled=false;
-let previousTradeIds=new Set();
+const API = window.location.origin;
+const $ = id => document.getElementById(id);
 
-function show(id,value){
-  $(id).textContent=value===undefined||value===null||value===""?"—":value;
+function fmtNum(v){
+  if(v===null||v===undefined||v===""||!Number.isFinite(Number(v))) return "--";
+  return Number(v).toLocaleString("en-IN",{maximumFractionDigits:2});
 }
-function money(v){
-  const n=Number(v);
-  return Number.isFinite(n)?"₹"+n.toFixed(2):"—";
+function fmtMoney(v){
+  if(v===null||v===undefined||!Number.isFinite(Number(v))) return "--";
+  return "₹"+Number(v).toLocaleString("en-IN",{maximumFractionDigits:2});
 }
-function dateText(v){
-  if(!v)return "—";
-  const d=new Date(v);
-  return Number.isNaN(d.getTime())?String(v):d.toLocaleString("en-IN");
+function setText(id,v){
+  $(id).textContent=(v===undefined||v===null||v==="")?"--":v;
 }
-function setStatus(id,text,good){
-  show(id,text);
-  $(id).className=good?"green":"amber";
+function get(obj,keys,def="--"){
+  for(const k of keys){
+    if(obj && obj[k]!==undefined && obj[k]!==null) return obj[k];
+  }
+  return def;
 }
-async function get(path){
-  const response=await fetch(API+path,{cache:"no-store"});
-  if(!response.ok)throw Error(path+" HTTP "+response.status);
-  return response.json();
+function colorPnl(el,v){
+  el.classList.remove("green","red","yellow");
+  if(Number(v)>0)el.classList.add("green");
+  else if(Number(v)<0)el.classList.add("red");
 }
-function findNumber(obj,keys){
-  for(const k of keys){
-    if(obj&&obj[k]!==undefined&&obj[k]!==null)return obj[k];
-  }
-  return null;
+async function fetchJSON(path){
+  const r=await fetch(API+path,{cache:"no-store"});
+  if(!r.ok)throw new Error(path+" HTTP "+r.status);
+  return await r.json();
 }
-function tradeId(t){
-  return String(t.id??t.tradeId??t.entryTime??t.time??JSON.stringify(t));
-}
-function tradeHtml(t){
-  const entry=findNumber(t,["entry","entryPrice","entryPremium","buyPrice"]);
-  const exit=findNumber(t,["exit","exitPrice","exitPremium","sellPrice"]);
-  const sl=findNumber(t,["sl","stopLoss"]);
-  const target=findNumber(t,["target","targetPrice"]);
-  const pnl=findNumber(t,["pnl","profitLoss","profit"]);
-  const qty=findNumber(t,["qty","quantity"]);
-  const type=t.type??t.optionType??t.side??"Demo Trade";
-  const name=t.symbol??t.instrument??t.tradingSymbol??"NIFTY Option";
-  const time=dateText(t.time??t.entryTime??t.createdAt);
-  return `<div class="trade">
-    <b>${safe(name)} · ${safe(type)}</b><br>
-    <span class="muted">${safe(time)}</span><br>
-    Entry: ${money(entry)} · Qty: ${safe(qty??"—")}<br>
-    Stop Loss: ${money(sl)} · Target: ${money(target)}
-    ${exit!==null?`<br>Exit: ${money(exit)}`:""}
-    ${pnl!==null?`<br><b class="${Number(pnl)>=0?"green":"red"}">P/L: ${money(pnl)}</b>`:""}
-  </div>`;
-}
-function safe(v){
-  return String(v??"—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-}
-function alertNewTrades(trades){
-  const current=new Set(trades.map(tradeId));
-  const added=trades.filter(t=>!previousTradeIds.has(tradeId(t)));
-  if(previousTradeIds.size&&added.length&&soundEnabled){
-    try{
-      const ctx=new (window.AudioContext||window.webkitAudioContext)();
-      const osc=ctx.createOscillator(),gain=ctx.createGain();
-      osc.connect(gain);gain.connect(ctx.destination);
-      osc.frequency.value=880;gain.gain.value=.12;
-      osc.start();osc.stop(ctx.currentTime+.25);
-    }catch(e){}
-  }
-  previousTradeIds=current;
-}
-async function loadAll(){
-  try{
-    const [health,nifty,config,status,indicators,trades]=await Promise.all([
-      get("/health"),get("/nifty"),get("/config"),
-      get("/demo-status"),get("/indicators"),get("/demo-trades")
-    ]);
 
-    setStatus("backend","Connected",true);
-    setStatus("feed",health.feed??"Unknown",health.feed==="Connected");
-
-    const feed=nifty.data?.feeds?.["NSE_INDEX|Nifty 50"];
-    show("nifty",feed?.ltpc?.ltp!==undefined?money(feed.ltpc.ltp):"No price");
-    show("feedTime",dateText(nifty.lastUpdateTime??health.lastUpdateTime));
-    show("marketMessage",feed?"NIFTY feed data received.":"NIFTY price data not available.");
-
-    show("demoEnabled",config.demoTrading?"Enabled":"Disabled");
-    show("realOrders",config.realOrders?"Enabled — Check!":"Disabled");
-    show("target",config.targetPercent!==undefined?config.targetPercent+"%":"—");
-    show("stop",config.stopPercent!==undefined?config.stopPercent+"%":"—");
-    show("tradeStatus",status.status??"Unknown");
-
-    const ind=indicators||{};
-    const data=ind.indicators??ind.data??ind;
-    show("ema9",findNumber(data,["ema9","EMA9"]));
-    show("ema21",findNumber(data,["ema21","EMA21"]));
-    show("vwap",findNumber(data,["vwap","VWAP"]));
-    show("rsi",findNumber(data,["rsi","rsi14","RSI"]));
-    show("candles",ind.completedCandles??data.completedCandles??"—");
-    show("signal",data.signal??ind.status??"Waiting");
-    show("indicatorMessage",ind.message??ind.status??"Indicator data received.");
-
-    const all=Array.isArray(trades.trades)?trades.trades:[];
-    const open=Array.isArray(trades.openTrades)?trades.openTrades:[];
-    const closed=Array.isArray(trades.closedTrades)?trades.closedTrades:[];
-
-    alertNewTrades(all);
-    show("totalTrades",all.length);
-    show("openCount",open.length);
-    show("closedCount",closed.length);
-
-    const pnl=Number(trades.totalPnl??0);
-    show("totalPnl",money(pnl));
-    $("totalPnl").className=pnl>=0?"green":"red";
-
-    const wins=closed.filter(t=>Number(t.pnl??t.profitLoss??0)>0).length;
-    const losses=closed.filter(t=>Number(t.pnl??t.profitLoss??0)<0).length;
-    show("wins",wins);
-    show("losses",losses);
-    show("winRate",closed.length?(wins/closed.length*100).toFixed(1)+"%":"—");
-
-    $("openTrades").innerHTML=open.length?open.map(tradeHtml).join(""):"<span class='muted'>Open Demo Trades లేవు.</span>";
-    $("history").innerHTML=closed.length?closed.slice().reverse().map(tradeHtml).join(""):"<span class='muted'>Closed Trades ఇంకా లేవు.</span>";
-
-    show("errors",health.cycleError||status.cycleError||"No backend cycle errors.");
-    show("lastRefresh", "Last refresh: "+new Date().toLocaleString("en-IN"));
-  }catch(e){
-    setStatus("backend","Connection Error",false);
-    show("errors",e.message);
-    show("lastRefresh","Last refresh failed: "+new Date().toLocaleTimeString());
-  }
+async function loadNifty(){
+  try{
+    const d=await fetchJSON("/nifty");
+    const price=get(d,["ltp","price","lastPrice","last_price","nifty"]);
+    setText("niftyPrice",fmtNum(price));
+    setText("priceTime",get(d,["timestamp","time","updatedAt","updated_at"],"Live price received"));
+    setText("feedStatus",get(d,["feedStatus","feed","connected"],"Received"));
+    setText("lastUpdate",new Date().toLocaleTimeString("en-IN"));
+  }catch(e){
+    setText("niftyPrice","--");
+    setText("feedStatus","Unavailable");
+  }
 }
-$("refresh").onclick=loadAll;
-$("sound").onclick=()=>{
-  soundEnabled=true;
-  show("soundStatus","Sound alerts enabled on this device.");
-  $("sound").textContent="Sound Enabled";
-};
-loadAll();
-setInterval(loadAll,10000);
+
+async function loadIndicators(){
+  try{
+    const d=await fetchJSON("/indicators");
+    setText("ema9",fmtNum(get(d,["ema9","EMA9"])));
+    setText("ema21",fmtNum(get(d,["ema21","EMA21"])));
+    setText("vwap",fmtNum(get(d,["vwap","VWAP"])));
+    setText("rsi",fmtNum(get(d,["rsi","RSI"])));
+    setText("signal",get(d,["signal","trend","strategySignal"]));
+  }catch(e){
+    ["ema9","ema21","vwap","rsi","signal"].forEach(id=>setText(id,"--"));
+  }
+}
+
+async function loadHealth(){
+  try{
+    const d=await fetchJSON("/health");
+    setText("marketStatus",get(d,["marketStatus","market","marketOpen"],"--"));
+    setText("autoStatus",get(d,["autoTrading","autoDemo","demoEnabled","status"],"--"));
+    setText("connectionStatus","🟢 Backend Connected");
+    $("connectionStatus").className="status green";
+  }catch(e){
+    setText("marketStatus","--");
+    setText("connectionStatus","🔴 Backend connection unavailable");
+    $("connectionStatus").className="status red";
+  }
+}
+
+async function loadDemo(){
+  try{
+    const d=await fetchJSON("/demo-status");
+    setText("openTrade",get(d,["openTrade","openPosition","position"],"No open trade"));
+    const pnl=get(d,["todayPnl","dailyPnl","pnl"],0);
+    setText("todayPnl",fmtMoney(pnl));
+    colorPnl($("todayPnl"),pnl);
+    setText("riskStatus",get(d,["riskStatus","risk","riskMessage"],"--"));
+    setText("lastSignal",get(d,["lastSignal","signal"],"--"));
+  }catch(e){
+    setText("openTrade","--");
+    setText("todayPnl","--");
+    setText("riskStatus","--");
+    setText("lastSignal","--");
+  }
+}
+
+function renderTrades(data){
+  const list=Array.isArray(data)?data:
+    (data.trades||data.history||data.data||[]);
+  const body=$("tradeHistory");
+  if(!list.length){
+    body.innerHTML='<tr><td colspan="7">No demo trades yet.</td></tr>';
+    return;
+  }
+  body.innerHTML="";
+  list.slice().reverse().forEach(t=>{
+    const tr=document.createElement("tr");
+    const values=[
+      get(t,["date","time","createdAt","timestamp"]),
+      get(t,["instrument","symbol","name"]),
+      get(t,["type","side","tradeType"]),
+      fmtNum(get(t,["entry","entryPrice","buyPrice"],null)),
+      fmtNum(get(t,["exit","exitPrice","sellPrice"],null)),
+      fmtMoney(get(t,["pnl","profitLoss","profit"],null)),
+      get(t,["status","state"])
+    ];
+    values.forEach(v=>{
+      const td=document.createElement("td");
+      td.textContent=v;
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+}
+async function loadTrades(){
+  try{
+    const d=await fetchJSON("/demo-trades");
+    renderTrades(d);
+  }catch(e){
+    $("tradeHistory").innerHTML='<tr><td colspan="7">History unavailable</td></tr>';
+  }
+}
+
+function calculate(){
+  const buy=Number($("buyPrice").value);
+  const qty=Number($("quantity").value);
+  const tp=Number($("targetPercent").value);
+  const sl=Number($("stopPercent").value);
+  if(!(buy>0&&qty>0)){
+    alert("Buy Premium and Quantity must be greater than zero.");
+    return;
+  }
+  const target=buy*(1+tp/100);
+  const stop=buy*(1-sl/100);
+  setText("targetPremium",fmtMoney(target));
+  setText("stopPremium",fmtMoney(stop));
+  setText("maxProfit",fmtMoney((target-buy)*qty));
+  setText("maxLoss",fmtMoney((buy-stop)*qty));
+}
+
+async function refreshAll(){
+  await Promise.all([
+    loadNifty(),
+    loadIndicators(),
+    loadHealth(),
+    loadDemo(),
+    loadTrades()
+  ]);
+}
+setText("backendUrl",API);
+calculate();
+refreshAll();
+setInterval(refreshAll,10000);
 </script>
 </body>
 </html>
