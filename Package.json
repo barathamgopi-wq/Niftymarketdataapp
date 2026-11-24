@@ -1,0 +1,14 @@
+{
+  "name": "nifty-live-market",
+  "version": "1.0.0",
+  "description": "NIFTY live market data and demo paper trading backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0",
+    "upstox-js-sdk": "^2.32.0"
+  }
+}
