@@ -1,4 +1,3 @@
-
 const express = require("express");
 const Upstox = require("upstox-js-sdk");
 const dns = require("dns");
@@ -45,7 +44,6 @@ let busy = false;
 function loadTrades() {
   try {
     fs.mkdirSync(STORAGE_DIR, { recursive: true });
-
     if (!fs.existsSync(STORAGE_FILE)) return [];
 
     const data = JSON.parse(
@@ -147,34 +145,98 @@ function rsi(values, period = 14) {
   return 100 - 100 / (1 + avgGain / avgLoss);
 }
 
+// India date helper
+function istDateOffset(daysAgo = 0) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+
+  const get = type =>
+    parts.find(p => p.type === type)?.value;
+
+  const today = new Date(
+    `${get("year")}-${get("month")}-${get("day")}T00:00:00Z`
+  );
+
+  today.setUTCDate(today.getUTCDate() - daysAgo);
+
+  return today.toISOString().slice(0, 10);
+}
+
+// Indicators: historical + today's intraday candles
 async function getIndicators() {
-  const url =
+  const today = istDateOffset(0);
+  const yesterday = istDateOffset(1);
+  const fromDate = istDateOffset(7);
+
+  const historicalUrl =
+    "https://api.upstox.com/v3/historical-candle/" +
+    encodeURIComponent(UNDERLYING) +
+    "/minutes/5/" +
+    yesterday +
+    "/" +
+    fromDate;
+
+  const intradayUrl =
     "https://api.upstox.com/v3/historical-candle/intraday/" +
     encodeURIComponent(UNDERLYING) +
     "/minutes/5";
 
-  const payload = await apiGet(url);
-  const raw = payload?.data?.candles;
+  const [historicalPayload, intradayPayload] =
+    await Promise.all([
+      apiGet(historicalUrl),
+      apiGet(intradayUrl)
+    ]);
 
-  if (!Array.isArray(raw)) {
+  const historicalRaw =
+    historicalPayload?.data?.candles || [];
+
+  const intradayRaw =
+    intradayPayload?.data?.candles || [];
+
+  if (
+    !Array.isArray(historicalRaw) ||
+    !Array.isArray(intradayRaw)
+  ) {
     throw new Error("Candle data unavailable");
   }
 
   const now = Date.now();
 
-  const candles = raw.map(c => ({
-    time: new Date(c[0]).getTime(),
-    high: Number(c[2]),
-    low: Number(c[3]),
-    close: Number(c[4]),
-    volume: Number(c[5] || 0)
-  }))
-  .filter(c =>
-    Number.isFinite(c.time) &&
-    Number.isFinite(c.close) &&
-    c.time + 300000 <= now
-  )
-  .sort((a, b) => a.time - b.time);
+  const allRaw = [
+    ...historicalRaw,
+    ...intradayRaw
+  ];
+
+  const candleMap = new Map();
+
+  for (const c of allRaw) {
+    const time = new Date(c[0]).getTime();
+
+    const candle = {
+      time,
+      high: Number(c[2]),
+      low: Number(c[3]),
+      close: Number(c[4]),
+      volume: Number(c[5] || 0)
+    };
+
+    if (
+      Number.isFinite(candle.time) &&
+      Number.isFinite(candle.high) &&
+      Number.isFinite(candle.low) &&
+      Number.isFinite(candle.close) &&
+      candle.time + 300000 <= now
+    ) {
+      candleMap.set(candle.time, candle);
+    }
+  }
+
+  const candles = [...candleMap.values()]
+    .sort((a, b) => a.time - b.time);
 
   if (candles.length < 22) {
     return {
@@ -190,10 +252,27 @@ async function getIndicators() {
   const e21 = ema(closes, 21);
   const r = rsi(closes, 14);
 
+  if (e9 === null || e21 === null || r === null) {
+    return {
+      status: "waiting",
+      message: "Indicator calculation waiting",
+      completedCandles: candles.length
+    };
+  }
+
+  // VWAP resets for the current Indian trading day
+  const todayStart = new Date(
+    today + "T00:00:00+05:30"
+  ).getTime();
+
+  const todayCandles = candles.filter(
+    c => c.time >= todayStart
+  );
+
   let pv = 0;
   let volume = 0;
 
-  for (const c of candles) {
+  for (const c of todayCandles) {
     if (c.volume > 0) {
       pv +=
         ((c.high + c.low + c.close) / 3) *
@@ -238,6 +317,7 @@ async function getIndicators() {
       ? null
       : Number(vwap.toFixed(2)),
     completedCandles: candles.length,
+    todayCandles: todayCandles.length,
     candleTime: new Date(latest.time).toISOString(),
     signal
   };
@@ -278,10 +358,7 @@ async function getNearestExpiry() {
 
   const contracts = payload.data || [];
 
-  const today = new Date().toLocaleDateString(
-    "en-CA",
-    { timeZone: "Asia/Kolkata" }
-  );
+  const today = istDateOffset(0);
 
   const expiries = [
     ...new Set(
@@ -480,6 +557,7 @@ async function tradingCycle() {
 
     if (!marketOpen()) {
       cycleStatus = "Market closed";
+      cycleError = null;
       return;
     }
 
@@ -732,3 +810,4 @@ app.listen(PORT, () => {
   tradingCycle();
   setInterval(tradingCycle, POLL_MS);
 });
+      
