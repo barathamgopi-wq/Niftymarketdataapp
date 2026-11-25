@@ -13,7 +13,6 @@ app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -28,7 +27,6 @@ const POLL_MS = 10000;
 
 const STORAGE_DIR = process.env.DATA_DIR || "/data";
 const STORAGE_FILE = path.join(STORAGE_DIR, "demo-trades.json");
-
 const DASHBOARD_FILE = path.join(
   __dirname,
   "NIFTY_Demo_Live_Price_Ready-2.html"
@@ -46,7 +44,6 @@ let busy = false;
 function loadTrades() {
   try {
     fs.mkdirSync(STORAGE_DIR, { recursive: true });
-
     if (!fs.existsSync(STORAGE_FILE)) return [];
 
     const data = JSON.parse(
@@ -169,16 +166,11 @@ function istDateOffset(daysAgo = 0) {
   return today.toISOString().slice(0, 10);
 }
 
-// ============================================
-// NIFTY FUTURES VWAP
-// Dynamically finds the active futures contract
-// ============================================
-
+// NIFTY Futures VWAP helper
 let cachedNiftyFuture = null;
 let cachedNiftyFutureDate = null;
-
-let vwapCache = null;
-let vwapCacheAt = 0;
+let futuresVwapCache = null;
+let futuresVwapCacheAt = 0;
 
 async function getNiftyFutureKey() {
   const today = istDateOffset(0);
@@ -190,12 +182,11 @@ async function getNiftyFutureKey() {
     return cachedNiftyFuture;
   }
 
-  const url =
-    "https://api.upstox.com/v2/instruments/search?query=NIFTY&exchanges=NSE&segments=FO&instrument_types=FUT&expiry=current_month,next_month&page_number=1&records=30";
+  const payload = await apiGet(
+    "https://api.upstox.com/v2/instruments/search?query=NIFTY&exchanges=NSE&segments=FO&instrument_types=FUT&page_number=1&records=100"
+  );
 
-  const payload = await apiGet(url);
-
-  const futures = (payload.data || [])
+  const contracts = (payload.data || [])
     .filter(x =>
       x.instrument_type === "FUT" &&
       x.underlying_symbol === "NIFTY" &&
@@ -206,30 +197,28 @@ async function getNiftyFutureKey() {
       a.expiry.localeCompare(b.expiry)
     );
 
-  if (!futures.length) {
-    throw new Error("NIFTY future contract not found");
+  if (!contracts.length) {
+    throw new Error("Active NIFTY futures contract not found");
   }
 
-  cachedNiftyFuture = futures[0].instrument_key;
+  cachedNiftyFuture = contracts[0].instrument_key;
   cachedNiftyFutureDate = today;
 
   return cachedNiftyFuture;
 }
 
 async function getFuturesVwap() {
-  // Cache VWAP briefly to avoid unnecessary API requests
   if (
-    vwapCache &&
-    Date.now() - vwapCacheAt < 30000
+    futuresVwapCache &&
+    Date.now() - futuresVwapCacheAt < 30000
   ) {
-    return vwapCache;
+    return futuresVwapCache;
   }
 
   const key = await getNiftyFutureKey();
-
   const today = istDateOffset(0);
-  const yesterday = istDateOffset(1);
   const fromDate = istDateOffset(7);
+  const yesterday = istDateOffset(1);
 
   const historicalUrl =
     "https://api.upstox.com/v3/historical-candle/" +
@@ -244,67 +233,60 @@ async function getFuturesVwap() {
     encodeURIComponent(key) +
     "/minutes/5";
 
-  const [hist, intra] = await Promise.all([
+  const [historical, intraday] = await Promise.all([
     apiGet(historicalUrl),
     apiGet(intradayUrl)
   ]);
 
   const candles = [
-    ...(hist?.data?.candles || []),
-    ...(intra?.data?.candles || [])
+    ...(historical?.data?.candles || []),
+    ...(intraday?.data?.candles || [])
   ];
 
-  const start = new Date(
+  const todayStart = new Date(
     today + "T00:00:00+05:30"
   ).getTime();
 
   const now = Date.now();
-
-  let pv = 0;
-  let volume = 0;
+  let sumPriceVolume = 0;
+  let sumVolume = 0;
 
   for (const c of candles) {
-    const t = new Date(c[0]).getTime();
-
+    const timestamp = new Date(c[0]).getTime();
     const high = Number(c[2]);
     const low = Number(c[3]);
     const close = Number(c[4]);
-    const vol = Number(c[5] || 0);
+    const volume = Number(c[5] || 0);
 
-    // Only completed candles for today's session
     if (
-      t >= start &&
-      t + 300000 <= now &&
+      timestamp >= todayStart &&
+      timestamp + 300000 <= now &&
       Number.isFinite(high) &&
       Number.isFinite(low) &&
       Number.isFinite(close) &&
-      vol > 0
+      volume > 0
     ) {
-      const typicalPrice =
-        (high + low + close) / 3;
+      sumPriceVolume +=
+        ((high + low + close) / 3) * volume;
 
-      pv += typicalPrice * vol;
-      volume += vol;
+      sumVolume += volume;
     }
   }
 
-  vwapCache =
-    volume > 0
+  futuresVwapCache =
+    sumVolume > 0
       ? {
-          value: pv / volume,
+          value: sumPriceVolume / sumVolume,
           source: "NIFTY Futures"
         }
       : null;
 
-  vwapCacheAt = Date.now();
+  futuresVwapCacheAt = Date.now();
 
-  return vwapCache;
+  return futuresVwapCache;
 }
 
-// ============================================
-// INDICATORS
-// ============================================
-
+// Indicators: historical + today's intraday candles
 async function getIndicators() {
   const today = istDateOffset(0);
   const yesterday = istDateOffset(1);
@@ -398,7 +380,7 @@ async function getIndicators() {
     };
   }
 
-  // VWAP from NIFTY Futures volume
+  // Futures VWAP calculation
   let vwapData = null;
 
   try {
@@ -411,12 +393,10 @@ async function getIndicators() {
   }
 
   const vwap = vwapData?.value ?? null;
-
   const latest = candles[candles.length - 1];
 
   let signal = "WAIT";
 
-  // CE signal
   if (
     vwap !== null &&
     latest.close > e9 &&
@@ -426,10 +406,7 @@ async function getIndicators() {
     r <= 70
   ) {
     signal = "CE";
-  }
-
-  // PE signal
-  else if (
+  } else if (
     vwap !== null &&
     latest.close < e9 &&
     e9 < e21 &&
@@ -454,10 +431,7 @@ async function getIndicators() {
   };
 }
 
-// ============================================
-// MARKET HOURS
-// ============================================
-
+// Market hours
 function marketOpen() {
   const now = new Date();
 
@@ -484,10 +458,6 @@ function marketOpen() {
     minutes <= 930
   );
 }
-
-// ============================================
-// OPTION CONTRACTS
-// ============================================
 
 async function getNearestExpiry() {
   const payload = await apiGet(
@@ -597,10 +567,6 @@ async function getAtmOptions() {
   };
 }
 
-// ============================================
-// DEMO TRADE ENTRY
-// ============================================
-
 function openTrade(option) {
   const trade = {
     id: Date.now().toString(),
@@ -645,10 +611,6 @@ function openTrade(option) {
   );
 }
 
-// ============================================
-// DEMO TRADE EXIT
-// ============================================
-
 function checkExit(option) {
   const trade = trades.find(t =>
     t.status === "OPEN" &&
@@ -689,10 +651,6 @@ function checkExit(option) {
     trade.pnl
   );
 }
-
-// ============================================
-// AUTO DEMO TRADING CYCLE
-// ============================================
 
 async function tradingCycle() {
   if (busy) return;
@@ -788,10 +746,7 @@ async function tradingCycle() {
   }
 }
 
-// ============================================
-// DASHBOARD
-// ============================================
-
+// Dashboard
 app.get("/", (req, res) => {
   res.sendFile(DASHBOARD_FILE, error => {
     if (error) {
@@ -809,10 +764,7 @@ app.get("/", (req, res) => {
   });
 });
 
-// ============================================
-// STATUS API
-// ============================================
-
+// Backend status
 app.get("/status", (req, res) => {
   res.json({
     app: "NIFTY Live Demo Trading Backend",
@@ -845,10 +797,7 @@ app.get("/config", (req, res) => {
   });
 });
 
-// ============================================
-// LIVE NIFTY
-// ============================================
-
+// Live NIFTY endpoint
 app.get("/nifty", (req, res) => {
   res.json({
     status: feedStatus,
@@ -857,10 +806,7 @@ app.get("/nifty", (req, res) => {
   });
 });
 
-// ============================================
-// INDICATORS API
-// ============================================
-
+// Indicators
 app.get("/indicators", async (req, res) => {
   try {
     const data = await getIndicators();
@@ -873,22 +819,16 @@ app.get("/indicators", async (req, res) => {
   }
 });
 
-// ============================================
-// DEMO TRADE HISTORY
-// ============================================
-
+// Demo trade history
 app.get("/demo-trades", (req, res) => {
   res.json({
     trades,
-
     openTrades: trades.filter(
       t => t.status === "OPEN"
     ),
-
     closedTrades: trades.filter(
       t => t.status === "CLOSED"
     ),
-
     totalPnl: Number(
       trades
         .filter(t => t.status === "CLOSED")
@@ -898,27 +838,20 @@ app.get("/demo-trades", (req, res) => {
   });
 });
 
-// ============================================
-// DEMO STATUS
-// ============================================
-
+// Demo status
 app.get("/demo-status", (req, res) => {
   res.json({
     status: cycleStatus,
     lastCycleTime,
     cycleError,
     indicators: indicatorsCache,
-
     openTrades: trades.filter(
       t => t.status === "OPEN"
     )
   });
 });
 
-// ============================================
-// START SERVER
-// ============================================
-
+// Start server
 app.listen(PORT, () => {
   console.log(
     "NIFTY Demo backend running on port " + PORT
@@ -959,3 +892,37 @@ app.listen(PORT, () => {
       latestNiftyData =
         typeof message === "string"
           ? JSON.parse(message)
+          : message;
+
+      lastUpdateTime = new Date().toISOString();
+
+    } catch (error) {
+      console.error(
+        "Market data parse error:",
+        error.message
+      );
+    }
+  });
+
+  streamer.on("reconnecting", () => {
+    feedStatus = "Reconnecting";
+  });
+
+  streamer.on("error", error => {
+    feedStatus = "Error";
+
+    console.error(
+      "Upstox feed error:",
+      error.message || error
+    );
+  });
+
+  streamer.on("close", () => {
+    feedStatus = "Disconnected";
+  });
+
+  streamer.connect();
+
+  tradingCycle();
+  setInterval(tradingCycle, POLL_MS);
+});
