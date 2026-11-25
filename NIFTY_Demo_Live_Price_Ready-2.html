@@ -1,756 +1,547 @@
+
 <!DOCTYPE html>
-<html lang="te">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#07111f">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIFTY Virtual Auto Trading</title>
 
 <style>
-:root {
-  color-scheme: dark;
-  --bg:#07111f;
-  --card:#101e32;
-  --border:#29405d;
-  --blue:#7dd3fc;
-  --green:#4ade80;
-  --red:#fb7185;
-  --yellow:#facc15;
-  --muted:#9db1cb;
+*{box-sizing:border-box}
+body{
+  margin:0;background:#07111f;color:#f1f5f9;
+  font-family:Arial,Helvetica,sans-serif;padding:12px
 }
-* { box-sizing:border-box; }
-body {
-  margin:0;
-  background:var(--bg);
-  color:#e8f0fb;
-  font:14px Arial,sans-serif;
+.container{max-width:1100px;margin:auto}
+h1{font-size:23px;color:#38bdf8}
+h2{font-size:17px;margin:5px 0 12px}
+.card{
+  background:#111e30;border:1px solid #26374e;
+  border-radius:13px;padding:15px;margin:10px 0
 }
-header {
-  padding:18px 12px;
-  text-align:center;
-  background:var(--card);
-  border-bottom:1px solid var(--border);
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.value{font-size:23px;font-weight:bold;margin-top:7px}
+.label{font-size:12px;color:#9fb1c8}
+.green{color:#22c55e}
+.red{color:#f87171}
+.yellow{color:#facc15}
+.blue{color:#38bdf8}
+button{
+  background:#0284c7;color:white;border:0;padding:12px;
+  border-radius:9px;font-weight:bold;cursor:pointer;margin:4px
 }
-h1 { margin:0;color:#60c8ff;font-size:21px; }
-header p { color:var(--muted);font-size:12px;margin:8px 0 0; }
-main { max-width:1250px;margin:auto;padding:12px; }
-.grid {
-  display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:12px;
-}
-.card {
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:14px;
-  margin-bottom:12px;
-  min-width:0;
-}
-h2 { font-size:15px;color:var(--blue);margin:0 0 12px; }
-.big { font-size:30px;font-weight:bold; }
-.small,.muted {
-  color:var(--muted);
-  font-size:12px;
-  line-height:1.6;
-}
-.row {
-  display:flex;
-  justify-content:space-between;
-  gap:10px;
-  padding:8px 0;
-  border-bottom:1px solid #233650;
-}
-.row span:last-child {
-  text-align:right;
-  font-weight:bold;
-  overflow-wrap:anywhere;
-}
-.green { color:var(--green); }
-.red { color:var(--red); }
-.yellow { color:var(--yellow); }
-.blue { color:var(--blue); }
-.buttons {
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  margin-top:10px;
-}
-button {
-  border:0;
-  border-radius:8px;
-  padding:10px 12px;
-  background:#0284c7;
-  color:white;
-  font-weight:bold;
-  cursor:pointer;
-}
-button.secondary { background:#33465f; }
-button.danger { background:#9f1239; }
-input[type=file] {
-  max-width:100%;
-  margin-top:10px;
-}
-table {
-  border-collapse:collapse;
-  width:100%;
-  min-width:900px;
-  font-size:12px;
-}
-th,td {
-  text-align:left;
-  padding:8px;
-  border-bottom:1px solid var(--border);
-  white-space:nowrap;
-}
-th { color:var(--blue); }
-.scroll { overflow:auto; }
-.check {
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:7px;
-}
-.check div {
-  padding:8px;
-  background:#172a42;
-  border-radius:7px;
-  font-size:12px;
-}
-.event {
-  padding:8px 0;
-  border-bottom:1px solid #263b55;
-}
-.event b { color:var(--blue); }
-footer {
-  text-align:center;
-  color:#7389a6;
-  padding:18px;
-  font-size:11px;
-}
-@media(max-width:700px) {
-  .grid { grid-template-columns:1fr; }
-  h1 { font-size:18px; }
-  .big { font-size:26px; }
-  .check { grid-template-columns:1fr; }
+button.secondary{background:#334155}
+button.danger{background:#b91c1c}
+button:disabled{opacity:.5}
+input[type=file]{max-width:100%;color:#ddd}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:9px 6px;border-bottom:1px solid #26374e;text-align:left}
+th{color:#7dd3fc}
+.tablewrap{overflow-x:auto}
+.status{font-weight:bold}
+.small{font-size:12px;color:#94a3b8}
+#message{white-space:pre-wrap;color:#facc15;font-size:13px}
+@media(min-width:700px){
+ .grid{grid-template-columns:repeat(4,1fr)}
 }
 </style>
 </head>
 
 <body>
+<div class="container">
 
-<header>
-<h1>📈 NIFTY VIRTUAL LIVE AUTO TRADING</h1>
-<p>REAL ORDERS DISABLED · VIRTUAL SIMULATION ONLY · Bharatham Gopi</p>
-</header>
+<h1>📈 NIFTY Virtual Auto Trading</h1>
+<p class="small">DEMO MODE ONLY — REAL ORDERS DISABLED</p>
 
-<main>
-
-<!-- CONNECTION STATUS -->
-<section class="card">
-<div class="row">
-<span>Backend connection</span>
-<span id="connection" class="yellow">Connecting...</span>
-</div>
-<div class="row">
-<span>Market / Entry window</span>
-<span id="session">--</span>
-</div>
-<div class="row">
-<span>Trading engine</span>
-<span id="engine">--</span>
-</div>
-<div class="row">
-<span>Storage</span>
-<span id="storage">--</span>
-</div>
-<div class="row">
-<span>Last scan</span>
-<span id="lastCycle">--</span>
-</div>
-<div class="row">
-<span>Backend error</span>
-<span id="error">None</span>
-</div>
-
-<div class="buttons">
-<button id="refresh">🔄 Refresh Now</button>
-<button id="notify" class="secondary">🔔 Enable Sound & Notifications</button>
-</div>
-
-<div class="small" id="notifyState">
-Sound and browser notifications are not enabled yet.
-</div>
-<div class="small" id="refreshTime">Waiting for refresh...</div>
-</section>
-
-<!-- LIVE PRICE AND INDICATORS -->
-<div class="grid">
-
-<section class="card">
-<h2>📊 NIFTY LIVE</h2>
-<div class="big" id="nifty">--</div>
-<div class="small" id="feedTime">Waiting for quote...</div>
-
-<div class="row">
-<span>Feed</span><span id="feed">--</span>
-</div>
-<div class="row">
-<span>Completed Candle Close</span><span id="candleClose">--</span>
-</div>
-<div class="row">
-<span>Candle Time</span><span id="candleTime">--</span>
-</div>
-<div class="row">
-<span>Trend</span><span id="trend">--</span>
-</div>
-<div class="row">
-<span>Candle Strength</span><span id="candleStrength">--</span>
-</div>
-</section>
-
-<section class="card">
-<h2>📉 INDICATORS</h2>
-<div class="row"><span>EMA 9</span><span id="ema9">--</span></div>
-<div class="row"><span>EMA 21</span><span id="ema21">--</span></div>
-<div class="row"><span>RSI 14</span><span id="rsi">--</span></div>
-<div class="row"><span>Futures VWAP</span><span id="vwap">--</span></div>
-<div class="row"><span>VWAP Volume</span><span id="vwapVol">--</span></div>
-<div class="row"><span>VWAP Source</span><span id="vwapSource">--</span></div>
-<div class="row"><span>Support</span><span id="support">--</span></div>
-<div class="row"><span>Resistance</span><span id="resistance">--</span></div>
-<div class="row"><span>Signal</span><span id="signal" class="yellow">WAIT</span></div>
-<div class="small" id="reason">Waiting for analysis...</div>
-</section>
-
-</div>
-
-<!-- STRATEGY CHECKS -->
-<section class="card">
-<h2>🧠 STRATEGY CHECKLIST</h2>
-<div id="checks" class="check">Waiting for analysis...</div>
-<p class="small">
-CE: Close &gt; EMA9 &gt; EMA21, close &gt; Futures VWAP,
-RSI 55–70.<br>
-PE: Close &lt; EMA9 &lt; EMA21, close &lt; Futures VWAP,
-RSI 30–45.<br>
-All required conditions must pass. Otherwise WAIT.
-</p>
-</section>
-
-<!-- OPTION SCAN -->
-<section class="card">
-<h2>🔎 OPTION SCANNER</h2>
-<div class="small" id="optionInfo">
-Waiting for option scan...
+<div class="card">
+<h2>Connection Status</h2>
+<div id="connection" class="status yellow">Connecting...</div>
+<div id="serverTime" class="small">--</div>
+<div id="marketStatus" class="small">Market status: --</div>
+<button onclick="refreshAll()">🔄 Refresh Now</button>
 </div>
 
 <div class="grid">
-<div>
-<div class="row"><span>Option Type</span><span id="optType">--</span></div>
-<div class="row"><span>Strike</span><span id="optStrike">--</span></div>
-<div class="row"><span>Expiry</span><span id="optExpiry">--</span></div>
-<div class="row"><span>Symbol</span><span id="optSymbol">--</span></div>
-</div>
-<div class="grid">
-<div>
-<div class="row"><span>Premium / LTP</span><span id="optLtp">--</span></div>
-<div class="row"><span>Lot Size</span><span id="optLot">--</span></div>
-<div class="row"><span>Instrument</span><span id="optInstrument">--</span></div>
+
+<div class="card">
+<div class="label">NIFTY LIVE PRICE</div>
+<div class="value blue" id="niftyPrice">--</div>
 </div>
 
-<p class="small">
-ఇక్కడ Backend నిర్ధారించిన option మాత్రమే చూపిస్తుంది.
-పూర్తి Option Chain / Greeks / OI / PCR data APIలో అందుబాటులో
-ఉంటే మాత్రమే చూపించగలం. లేనప్పుడు ఊహించి చూపించము.
-</p>
-</section>
+<div class="card">
+<div class="label">TODAY P&L</div>
+<div class="value" id="todayPnl">--</div>
+</div>
 
-<!-- OPEN TRADE -->
-<section class="card">
-<h2>🟢 OPEN VIRTUAL TRADE</h2>
-<div id="openTradeMessage" class="small">No open trade.</div>
+<div class="card">
+<div class="label">TOTAL P&L</div>
+<div class="value" id="totalPnl">--</div>
+</div>
+
+<div class="card">
+<div class="label">OPEN TRADE P&L</div>
+<div class="value" id="floatingPnl">--</div>
+</div>
+
+</div>
 
 <div class="grid">
-<div>
-<div class="row"><span>Status</span><span id="openStatus">--</span></div>
-<div class="row"><span>CE / PE</span><span id="openSide">--</span></div>
-<div class="row"><span>Symbol</span><span id="openSymbol">--</span></div>
-<div class="row"><span>Strike</span><span id="openStrike">--</span></div>
-<div class="row"><span>Expiry</span><span id="openExpiry">--</span></div>
-<div class="row"><span>Quantity</span><span id="openQty">--</span></div>
+
+<div class="card">
+<div class="label">TODAY TRADES</div>
+<div class="value" id="todayCount">--</div>
 </div>
 
-<div>
-<div class="row"><span>Entry Price</span><span id="openEntry">--</span></div>
-<div class="row"><span>Live LTP</span><span id="openLtp">--</span></div>
-<div class="row"><span>Investment</span><span id="openInvestment">--</span></div>
-<div class="row"><span>Target Price</span><span id="openTarget" class="green">--</span></div>
-<div class="row"><span>Stop Loss</span><span id="openSL" class="red">--</span></div>
-<div class="row"><span>Floating P&amp;L</span><span id="openPnl">--</span></div>
+<div class="card">
+<div class="label">TOTAL TRADES</div>
+<div class="value" id="totalCount">--</div>
 </div>
-</section>
 
-<!-- PNL SUMMARY -->
+<div class="card">
+<div class="label">OPEN TRADES</div>
+<div class="value" id="openCount">--</div>
+</div>
+
+<div class="card">
+<div class="label">CLOSED TRADES</div>
+<div class="value" id="closedCount">--</div>
+</div>
+
+</div>
+
+<div class="card">
+<h2>📊 Market Indicators</h2>
 <div class="grid">
-<section class="card">
-<h2>💰 PROFIT & LOSS</h2>
-<div class="row"><span>Today's Closed P&amp;L</span><span id="todayPnl">--</span></div>
-<div class="row"><span>All-Time Closed P&amp;L</span><span id="totalPnl">--</span></div>
-<div class="row"><span>Current Floating P&amp;L</span><span id="floatingPnl">--</span></div>
-<div class="row"><span>Today's Closed Trades</span><span id="todayCount">--</span></div>
-<div class="row"><span>Total Trade Records</span><span id="recordCount">--</span></div>
-<div class="row"><span>Open Trades</span><span id="openCount">--</span></div>
-<div class="row"><span>Closed Trades</span><span id="closedCount">--</span></div>
-</section>
-
-<section class="card">
-<h2>🔔 ALERTS</h2>
-<div id="alerts" class="small">No trade alerts yet.</div>
-<div class="small">
-Alert events: New OPEN, TARGET HIT, STOP LOSS HIT, trade CLOSE.
-Sound will not repeat on every refresh.
+<div><div class="label">Trend</div><div id="trend" class="value">--</div></div>
+<div><div class="label">RSI</div><div id="rsi" class="value">--</div></div>
+<div><div class="label">EMA</div><div id="ema" class="value">--</div></div>
+<div><div class="label">VWAP</div><div id="vwap" class="value">--</div></div>
 </div>
-</section>
 </div>
 
-<!-- TRADE HISTORY -->
-<section class="card">
-<h2>📜 TRADE HISTORY</h2>
-<div class="scroll">
+<div class="card">
+<h2>🔎 CE / PE Option Scanner</h2>
+<div id="scanner" class="value yellow">Waiting for signal...</div>
+<div id="scannerDetails" class="small">--</div>
+</div>
+
+<div class="card">
+<h2>🤖 Virtual Auto Trade</h2>
+<div id="tradeStatus" class="yellow">Checking...</div>
+<div id="openTradeDetails" class="small">--</div>
+<p class="small">Virtual target: +20% | Virtual Stop Loss: -10%</p>
+<p class="small">No real orders are placed.</p>
+</div>
+
+<div class="card">
+<h2>📜 Trade History</h2>
+<div class="tablewrap">
 <table>
 <thead>
 <tr>
-<th>Entry Time</th>
-<th>Symbol</th>
-<th>Side</th>
-<th>Strike</th>
-<th>Expiry</th>
-<th>Qty</th>
-<th>Entry</th>
-<th>Investment</th>
-<th>Target</th>
-<th>SL</th>
-<th>Last/Exit</th>
-<th>Trigger</th>
-<th>Slippage</th>
-<th>P&amp;L</th>
+<th>Date</th>
+<th>Option</th>
+<th>Buy</th>
+<th>Exit</th>
+<th>P&L</th>
 <th>Status</th>
-<th>Exit Reason</th>
 </tr>
 </thead>
-<tbody id="trades">
-<tr><td colspan="16">Loading trades...</td></tr>
+<tbody id="tradeTable">
+<tr><td colspan="6">Loading trades...</td></tr>
 </tbody>
 </table>
 </div>
-</section>
-
-<!-- BACKUP -->
-<section class="card">
-<h2>💾 TRADE BACKUP & RESTORE</h2>
-<p class="small">
-మీ Demo trade historyని JSON ఫైల్‌గా మీ మొబైల్‌లో Save చేసుకోవచ్చు.
-తర్వాత ఆ ఫైల్‌తో Restore కూడా చేసుకోవచ్చు.
-Backup ఫైల్‌ను File Managerలో భద్రపరచుకోండి.
-</p>
-
-<div class="buttons">
-<button id="exportBtn">⬇️ Download Backup</button>
-<button id="serverExport" class="secondary">⬇️ Server Backup</button>
 </div>
 
-<div class="small">Restore JSON backup file:</div>
-<input id="importFile" type="file" accept=".json,application/json">
-<button id="importBtn" class="secondary">Restore Backup</button>
-<div id="backupMessage" class="small"></div>
-</section>
+<div class="card">
+<h2>📝 Activity</h2>
+<div id="activity">Loading...</div>
+</div>
 
-<!-- ACTIVITY -->
-<section class="card">
-<h2>🖥️ BACKEND ACTIVITY</h2>
-<div id="activity" class="small">Loading...</div>
-</section>
+<div class="card">
+<h2>💾 Trade Backup & Restore</h2>
+<button onclick="downloadBackup()">⬇ Download Backup</button>
+<br><br>
+<input type="file" id="backupFile" accept=".json">
+<button class="secondary" onclick="restoreBackup()">Restore Backup</button>
+<div id="message"></div>
+</div>
 
-<!-- SAFETY -->
-<section class="card">
-<h2>⚠️ SAFETY INFORMATION</h2>
-<p class="small">
-ఇది Virtual / Paper Trading మాత్రమే.<br>
-Real money orders Disabled.<br>
-Option Premium ఆధారంగా Stop Loss 10% మరియు Target 20%.<br>
-Quantity = Contract Lot Size.<br>
-SL / Targetను Backend quote polling ద్వారా గుర్తిస్తుంది.
-Network/API latency వల్ల Exit సమయం ఆలస్యం కావచ్చు.
-2–5 seconds exit guarantee కాదు.<br>
-Browser మూసినా Railway Backend పనిచేయవచ్చు.
-Browser notifications మాత్రం Browser తెరిచి, permission ఇచ్చినప్పుడు మాత్రమే వస్తాయి.
-</p>
-</section>
+<div class="card">
+<h2>⚙️ System Information</h2>
+<div id="systemInfo" class="small">Loading...</div>
+</div>
 
-<footer>
-Bharatham Gopi · NIFTY Virtual Trading · REAL ORDERS DISABLED
-</footer>
-
-</main>
+</div>
 
 <script>
-'use strict';
+"use strict";
 
-const $ = id => document.getElementById(id);
+const REFRESH_MS = 5000;
+let previousOpenTrade = null;
+let previousClosedCount = null;
+let notificationReady = false;
 
-const fmt = value => {
-  if (value === null || value === undefined || value === '') return '--';
+function byId(id){
+  return document.getElementById(id);
+}
+
+function text(id,value){
+  byId(id).textContent =
+    value === undefined || value === null ? "--" : value;
+}
+
+function number(value){
+  if(value === undefined || value === null || value === ""){
+    return "--";
+  }
   const n = Number(value);
-  if (!Number.isFinite(n)) return String(value);
-  return n.toLocaleString('en-IN',{maximumFractionDigits:2});
-};
+  return Number.isFinite(n) ? n.toLocaleString("en-IN",{
+    maximumFractionDigits:2
+  }) : String(value);
+}
 
-const money = value => {
-  if (value === null || value === undefined) return '--';
+function money(value){
+  if(value === undefined || value === null || value === ""){
+    return "--";
+  }
   const n = Number(value);
-  if (!Number.isFinite(n)) return '--';
-  return '₹' + fmt(n);
-};
+  if(!Number.isFinite(n)) return String(value);
+  return (n >= 0 ? "₹" : "-₹") +
+    Math.abs(n).toLocaleString("en-IN",{maximumFractionDigits:2});
+}
 
-function dt(value) {
-  if (!value) return '--';
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return String(value);
-  return d.toLocaleString('en-IN',{
-    timeZone:'Asia/Kolkata',
-    dateStyle:'short',
-    timeStyle:'medium'
+function colorValue(id,value){
+  const el=byId(id);
+  el.textContent=money(value);
+  el.classList.remove("green","red");
+  if(Number(value)>0)el.classList.add("green");
+  if(Number(value)<0)el.classList.add("red");
+}
+
+async function api(path,options={}){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),12000);
+  try{
+    const response=await fetch(path,{
+      ...options,
+      signal:controller.signal,
+      cache:"no-store"
+    });
+    if(!response.ok){
+      throw new Error(path+" HTTP "+response.status);
+    }
+    return await response.json();
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+function notify(title,body){
+  if("Notification" in window &&
+     Notification.permission==="granted"){
+    try{
+      new Notification(title,{body:body});
+    }catch(e){}
+  }
+}
+
+function enableNotifications(){
+  if(!("Notification" in window)){
+    alert("Browser notifications are not supported.");
+    return;
+  }
+  Notification.requestPermission().then(result=>{
+    notificationReady=result==="granted";
+    alert("Notification permission: "+result);
   });
 }
 
-function safeText(id,value) {
-  $(id).textContent =
-    value === null || value === undefined || value === ''
-      ? '--'
-      : String(value);
+function findValue(obj,keys){
+  if(!obj)return undefined;
+  for(const key of keys){
+    if(obj[key]!==undefined && obj[key]!==null){
+      return obj[key];
+    }
+  }
+  return undefined;
 }
 
-function statusColor(id,value) {
-  const el = $(id);
-  el.classList.remove('green','red','yellow','blue');
+function renderNifty(data){
+  if(!data)return;
+  const price=findValue(data,[
+    "ltp","lastPrice","last_price","price",
+    "nifty","currentPrice","current_price"
+  ]);
+  if(price!==undefined)text("niftyPrice",number(price));
 
-  if (value === 'BUY CE' || value === 'PASS' || value === 'OPEN') {
-    el.classList.add('green');
-  } else if (value === 'BUY PE' || value === 'FAIL' || value === 'CLOSED') {
-    el.classList.add('red');
-  } else {
-    el.classList.add('yellow');
+  const time=findValue(data,["time","timestamp","updatedAt"]);
+  if(time!==undefined)text("serverTime",String(time));
+}
+
+function renderIndicators(data){
+  if(!data)return;
+  const source=data.indicators || data.data || data;
+
+  const trend=findValue(source,["trend","signal","direction"]);
+  const rsi=findValue(source,["rsi","RSI"]);
+  const ema=findValue(source,["ema","EMA","emaValue"]);
+  const vwap=findValue(source,["vwap","VWAP"]);
+
+  if(trend!==undefined)text("trend",trend);
+  if(rsi!==undefined)text("rsi",number(rsi));
+  if(ema!==undefined)text("ema",number(ema));
+  if(vwap!==undefined)text("vwap",number(vwap));
+}
+
+function renderScanner(data){
+  if(!data)return;
+  const signal=findValue(data,["option","signal","status"]);
+  const message=findValue(data,["message","reason"]);
+  const analysis=data.analysis || {};
+
+  text("scanner",signal || "WAIT");
+  text("scannerDetails",
+    message || JSON.stringify(analysis));
+}
+
+function renderStatus(data){
+  if(!data)return;
+  const connected= data.status==="ok" ||
+                  data.status==="connected";
+
+  text("connection",connected ?
+       "🟢 Backend Connected":"🟡 Backend Status");
+
+  if(data.marketOpen!==undefined){
+    text("marketStatus",data.marketOpen ?
+      "Market: OPEN":"Market: CLOSED");
+  }
+
+  text("systemInfo",
+    "Feed: "+(data.feedStatus || "--")+
+    "\nCycle: "+(data.cycleStatus || "--")+
+    "\nStorage: "+(data.storageReady ? "Ready":"--")+
+    "\nReal Orders: DISABLED"+
+    "\nRefresh: "+REFRESH_MS/1000+" seconds");
+}
+
+function renderSummary(data){
+  if(!data)return;
+  const s=data.summary || data;
+
+  const today=findValue(s,["todayPnl","todayPnL"]);
+  const total=findValue(s,["allTimePnl","totalPnl","totalPnL"]);
+  const floating=findValue(s,["floatingPnl","openPnl"]);
+
+  if(today!==undefined)colorValue("todayPnl",today);
+  if(total!==undefined)colorValue("totalPnl",total);
+  if(floating!==undefined)colorValue("floatingPnl",floating);
+
+  const todayTrades=findValue(s,["todayTradeCount","todayTrades"]);
+  const totalTrades=findValue(s,["totalTradeCount","totalTrades"]);
+  const openTrades=findValue(s,["openTradeCount","openTrades"]);
+  const closedTrades=findValue(s,["closedTradeCount","closedTrades"]);
+
+  if(todayTrades!==undefined)text("todayCount",todayTrades);
+  if(totalTrades!==undefined)text("totalCount",totalTrades);
+  if(openTrades!==undefined)text("openCount",openTrades);
+  if(closedTrades!==undefined)text("closedCount",closedTrades);
+}
+
+function renderOpenTrade(data){
+  if(!data)return;
+  const trade=data.openTrade || data.trade || null;
+
+  if(!trade){
+    text("tradeStatus","No open virtual trade");
+    text("openTradeDetails","Waiting for next signal.");
+    previousOpenTrade=null;
+    return;
+  }
+
+  text("tradeStatus","🟢 VIRTUAL TRADE OPEN");
+
+  const details=
+    "Option: "+(trade.optionType || trade.type || trade.symbol || "--")+
+    "\nEntry Price: ₹"+number(trade.buyPrice || trade.entryPrice)+
+    "\nCurrent Price: ₹"+number(trade.currentPrice || trade.ltp)+
+    "\nTarget: ₹"+number(trade.target)+
+    "\nStop Loss: ₹"+number(trade.stopLoss || trade.sl)+
+    "\nP&L: "+money(trade.pnl || trade.floatingPnl);
+
+  text("openTradeDetails",details);
+
+  const tradeId=trade.id || trade.tradeId || trade.symbol || "trade";
+
+  if(previousOpenTrade===null){
+    previousOpenTrade=tradeId;
+  }else if(previousOpenTrade!==tradeId){
+    notify("New Virtual Trade",details);
+    previousOpenTrade=tradeId;
   }
 }
 
-async function api(path) {
-  const response = await fetch(path + '?_=' + Date.now(),{
-    cache:'no-store',
-    headers:{'Cache-Control':'no-cache'}
+function renderTrades(data){
+  if(!data)return;
+  const trades=data.trades || data.data || [];
+  const tbody=byId("tradeTable");
+
+  if(!Array.isArray(trades)||trades.length===0){
+    tbody.innerHTML='<tr><td colspan="6">No trades found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML="";
+  trades.slice().reverse().forEach(trade=>{
+    const row=document.createElement("tr");
+
+    const date=trade.date || trade.time ||
+      trade.createdAt || "--";
+    const option=trade.optionType || trade.type ||
+      trade.symbol || "--";
+    const buy=trade.buyPrice || trade.entryPrice || "--";
+    const exit=trade.exitPrice || "--";
+    const pnl=trade.pnl || trade.profit || 0;
+    const status=trade.status || "--";
+
+    [date,option,buy,exit,money(pnl),status]
+      .forEach(value=>{
+        const td=document.createElement("td");
+        td.textContent=String(value);
+        row.appendChild(td);
+      });
+
+    tbody.appendChild(row);
   });
+}
 
-  if (!response.ok) {
-    throw new Error(path + ' HTTP ' + response.status);
+function renderActivity(data){
+  if(!data)return;
+  const list=data.activity || data.data || [];
+  if(!Array.isArray(list)||list.length===0){
+    text("activity","No recent activity.");
+    return;
   }
 
-  return response.json();
+  byId("activity").innerHTML="";
+  list.slice(0,15).forEach(item=>{
+    const div=document.createElement("div");
+    div.className="small";
+    div.style.padding="7px";
+    div.style.borderBottom="1px solid #26374e";
+    div.textContent=
+      (item.time || item.timestamp || "")+" "+
+      (item.message || item.action || item.event || JSON.stringify(item));
+    byId("activity").appendChild(div);
+  });
 }
 
-function addCell(row,value) {
-  const cell = document.createElement('td');
-  cell.textContent =
-    value === null || value === undefined || value === ''
-      ? '--'
-      : String(value);
-  row.appendChild(cell);
-}
+async function refreshAll(){
+  text("connection","🟡 Connecting to backend...");
 
-function marketStatus() {
-  const parts = new Intl.DateTimeFormat('en-GB',{
-    timeZone:'Asia/Kolkata',
-    weekday:'short',
-    hour:'2-digit',
-    minute:'2-digit',
-    hourCycle:'h23'
-  }).formatToParts(new Date());
+  const endpoints=[
+    ["/health",renderHealth],
+    ["/status",renderStatus],
+    ["/nifty",renderNifty],
+    ["/indicators",renderIndicators],
+    ["/option-scan",renderScanner],
+    ["/demo-trades",renderTrades],
+    ["/demo-trades",renderSummary],
+    ["/demo-status",renderOpenTrade],
+    ["/activity",renderActivity]
+  ];
 
-  const get = k => parts.find(x => x.type === k)?.value;
-  const weekday = !['Sat','Sun'].includes(get('weekday'));
-  const minutes = Number(get('hour'))*60 + Number(get('minute'));
+  const results=await Promise.allSettled(
+    endpoints.map(([url])=>api(url))
+  );
 
-  const open = weekday && minutes >= 555 && minutes <= 930;
-  const entry = weekday && minutes >= 555 && minutes <= 915;
-
-  return (open ? 'MARKET OPEN' : 'MARKET CLOSED') +
-    ' / ' + (entry ? 'ENTRY WINDOW' : 'ENTRY BLOCKED');
-}
-
-// SOUND / NOTIFICATIONS
-let soundEnabled = false;
-let audioContext = null;
-let refreshing = false;
-let previousTradeStates = {};
-let previousAlert = '';
-
-function beep() {
-  if (!soundEnabled) return;
-
-  try {
-    audioContext = audioContext ||
-      new (window.AudioContext || window.webkitAudioContext)();
-
-    const oscillator = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-
-    oscillator.connect(gain);
-    gain.connect(audioContext.destination);
-
-    oscillator.frequency.value = 850;
-    gain.gain.value = 0.07;
-
-    oscillator.start();
-    oscillator.stop(audioContext.currentTime + 0.25);
-  } catch(e) {
-    console.log('Audio error',e);
-  }
-}
-
-function notify(title,message) {
-  beep();
-
-  if ('Notification' in window &&
-      Notification.permission === 'granted') {
-    try {
-      new Notification(title,{body:message});
-    } catch(e) {}
-  }
-
-  $('alerts').textContent =
-    dt(new Date().toISOString()) + ' · ' + title + ' · ' + message;
-}
-
-function checkTradeAlerts(trades) {
-  const current = {};
-
-  trades.forEach(t => {
-    current[t.id] = t.status;
-
-    const old = previousTradeStates[t.id];
-
-    if (old && old !== t.status) {
-      if (t.status === 'CLOSED') {
-        notify(
-          t.exitReason || 'TRADE CLOSED',
-          (t.tradingSymbol || '') +
-          ' · P&L ' + money(t.pnl)
-        );
+  let success=0;
+  results.forEach((result,index)=>{
+    if(result.status==="fulfilled"){
+      success++;
+      try{
+        endpoints[index][1](result.value);
+      }catch(error){
+        console.error("Render error:",error);
       }
-    } else if (!old && t.status === 'OPEN') {
-      notify(
-        'VIRTUAL TRADE OPEN',
-        (t.tradingSymbol || '') +
-        ' · Entry ' + money(t.entryPrice)
-      );
+    }else{
+      console.warn(endpoints[index][0],
+        result.reason);
     }
   });
 
-  previousTradeStates = current;
+  if(success>0){
+    text("connection",
+      "🟢 Connected ("+success+"/"+endpoints.length+" APIs)");
+  }else{
+    text("connection",
+      "🔴 Backend unavailable");
+  }
 }
 
-// STRATEGY CHECKS
-function renderChecks(data) {
-  const root = $('checks');
-  root.replaceChildren();
+function renderHealth(data){
+  if(data && data.status==="ok"){
+    text("connection","🟢 Server Online");
+  }
+}
 
-  const checks = Array.isArray(data?.checks) ? data.checks : [];
+async function downloadBackup(){
+  try{
+    const response=await fetch("/export-trades");
+    if(!response.ok)throw new Error("Backup failed");
 
-  if (!checks.length) {
-    root.textContent = 'Checklist data not available.';
+    const blob=await response.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download="nifty-demo-trades-backup.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    text("message","Backup downloaded.");
+  }catch(error){
+    text("message","Backup error: "+error.message);
+  }
+}
+
+async function restoreBackup(){
+  const file=byId("backupFile").files[0];
+  if(!file){
+    text("message","Please select a backup JSON file.");
     return;
   }
 
-  checks.forEach(item => {
-    const box = document.createElement('div');
-    const heading = document.createElement('b');
-    const detail = document.createElement('div');
+  if(!confirm("Restore backup? This may replace existing trade history.")){
+    return;
+  }
 
-    heading.textContent =
-      (item.status || 'WAIT') + ' · ' + (item.name || '');
+  try{
+    const content=await file.text();
+    const data=JSON.parse(content);
 
-    heading.className =
-      item.status === 'PASS' ? 'green' :
-      item.status === 'FAIL' ? 'red' : 'yellow';
+    const response=await fetch("/import-trades",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(data)
+    });
 
-    let actual = item.actual;
-    if (actual && typeof actual === 'string' &&
-        actual.includes('T')) {
-      actual = dt(actual);
-    } else if (typeof actual === 'number') {
-      actual = fmt(actual);
+    const result=await response.json();
+
+    if(!response.ok){
+      throw new Error(result.message || "Restore failed");
     }
 
-    detail.textContent =
-      'Value: ' + (actual ?? '--') +
-      ' · Rule: ' + (item.rule || '--');
-
-    box.append(heading,detail);
-    root.appendChild(box);
-  });
-}
-
-// OPTION SCANNER
-function renderOptionScan(data) {
-  const option = data?.option || data?.data?.option || null;
-
-  if (!option) {
-    safeText('optionInfo',
-      data?.message || data?.status || 'Option scan waiting');
-    [
-      'optType','optStrike','optExpiry','optSymbol',
-      'optLtp','optLot','optInstrument'
-    ].forEach(id => safeText(id,'--'));
-    return;
-  }
-
-  safeText('optionInfo','Verified option scan data received');
-
-  safeText('optType',option.optionType);
-  safeText('optStrike',fmt(option.strike));
-  safeText('optExpiry',option.expiry);
-  safeText('optSymbol',option.tradingSymbol);
-  safeText('optLtp',money(option.premium));
-  safeText('optLot',fmt(option.lotSize));
-  safeText('optInstrument',option.instrumentKey);
-}
-
-// OPEN TRADE
-function renderOpenTrade(trade) {
-  if (!trade || trade.status !== 'OPEN') {
-    safeText('openTradeMessage','No open virtual trade.');
-    [
-      'openStatus','openSide','openSymbol','openStrike',
-      'openExpiry','openQty','openEntry','openLtp',
-      'openInvestment','openTarget','openSL','openPnl'
-    ].forEach(id => safeText(id,'--'));
-    return;
-  }
-
-  safeText('openTradeMessage','Virtual trade currently active.');
-
-  safeText('openStatus',trade.status);
-  safeText('openSide',trade.optionType || trade.signal);
-  safeText('openSymbol',trade.tradingSymbol);
-  safeText('openStrike',fmt(trade.strike));
-  safeText('openExpiry',trade.expiry);
-  safeText('openQty',fmt(trade.quantity));
-
-  safeText('openEntry',money(trade.entryPrice));
-  safeText('openLtp',money(trade.currentLTP));
-  safeText('openInvestment',money(trade.investment));
-  safeText('openTarget',money(trade.targetPrice));
-  safeText('openSL',money(trade.stopPrice));
-  safeText('openPnl',money(trade.floatingPnl));
-
-  const pnl = $('openPnl');
-  pnl.classList.remove('green','red');
-  if (Number(trade.floatingPnl) > 0) pnl.classList.add('green');
-  if (Number(trade.floatingPnl) < 0) pnl.classList.add('red');
-}
-
-// TRADE HISTORY
-function renderTrades(data) {
-  const root = $('trades');
-  root.replaceChildren();
-
-  const list = Array.isArray(data?.trades) ? data.trades : [];
-  const summary = data?.summary || {};
-
-  list.forEach(t => {
-    const row = document.createElement('tr');
-
-    [
-      dt(t.entryTime),
-      t.tradingSymbol,
-      t.optionType || t.signal,
-      fmt(t.strike),
-      t.expiry,
-      fmt(t.quantity),
-      money(t.entryPrice),
-      money(t.investment),
-      money(t.targetPrice),
-      money(t.stopPrice),
-      money(t.status === 'OPEN' ? t.currentLTP : t.exitPrice),
-      money(t.triggerPrice),
-      money(t.slippage),
-      money(t.status === 'OPEN' ? t.floatingPnl : t.pnl),
-      t.status,
-      t.exitReason
-    ].forEach(v => addCell(row,v));
-
-    root.appendChild(row);
-  });
-
-  if (!list.length) {
-    const row = document.createElement('tr');
-    addCell(row,'No trade records yet');
-    root.appendChild(row);
-  }
-
-  safeText('todayPnl',money(summary.todayPnl));
-  safeText('totalPnl',money(summary.allTimePnl));
-  safeText('floatingPnl',money(summary.floatingPnl));
-  safeText('todayCount',fmt(summary.todayTradeCount));
-  safeText('recordCount',fmt(summary.totalTradeCount));
-  safeText('openCount',fmt(summary.openTradeCount));
-  safeText('closedCount',fmt(summary.closedTradeCount));
-
-  const today = $('todayPnl');
-  today.classList.remove('green','red');
-  if (Number(summary.todayPnl) > 0) today.classList.add('green');
-  if (Number(summary.todayPnl) < 0) today.classList.add('red');
-
-  const total = $('totalPnl');
-  total.classList.remove('green','red');
-  if (Number(summary.allTimePnl) > 0) total.classList.add('green');
-  if (Number(summary.allTimePnl) < 0) total.classList.add('red');
-
-  checkTradeAlerts(list);
-}
-
-// ACTIVITY LOG
-function renderActivity(data) {
-  const root = $('activity');
-  root.replaceChildren();
-
-  const events = Array.isArray(data?.activity)
-    ? data.activity
-    : Array.isArray(data?.data)
-      ? data.data
-      : Array.isArray(data)
-        ? data
-        : [];
-
-  events.slice(0,30).forEach(event => {
-    const div = document.createElement('div');
-    div.className = 'event';
-
-    const heading = document.createElement('b');
-    heading.textContent =
-      '[' + (event.type || 'EVENT') + '] ' + dt(event.time) + ' ';
-
-    const detail = document.createTextNode(
-      (event.message || '') + ' ' +
-      (event.detail ? JSON.stringify(event.detail) : '')
-    );
-
-    div.append(heading,detail);
-    root.appendChild(div);
-  });
-
-  if (!events.length) {
-    root.textContent = 'No activity data available.';
+    text("message","Backup restore completed.");
+    await refreshAll();
+  }catch(error){
+    text("message","Restore error: "+error.message);
   }
 }
 
-// MAIN REFRESH
-async 
+refreshAll();
+setInterval(refreshAll,REFRESH_MS);
+</script>
+
+</body>
+</html>
