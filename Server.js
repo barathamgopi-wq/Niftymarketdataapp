@@ -34,37 +34,29 @@ const DASHBOARD_FILE = path.join(
   "NIFTY_Demo_Live_Price_Ready-2.html"
 );
 
-// LIVE STATUS
-let latestNiftyData = null;
+// STATUS
 let feedStatus = "Disconnected";
+let latestNiftyData = null;
 let lastUpdateTime = null;
-
 let indicatorsCache = null;
 let lastCycleTime = null;
 let cycleStatus = "Starting";
 let cycleError = null;
 let busy = false;
-
 let streamer = null;
 
-// LOAD TRADE HISTORY
+// TRADE STORAGE
 function loadTrades() {
   try {
     fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
-    if (!fs.existsSync(STORAGE_FILE)) {
-      return [];
-    }
+    if (!fs.existsSync(STORAGE_FILE)) return [];
 
     const data = JSON.parse(
       fs.readFileSync(STORAGE_FILE, "utf8")
     );
 
-    if (!Array.isArray(data)) {
-      throw new Error("Trade history format is invalid");
-    }
-
-    return data;
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error("Trade history load error:", error.message);
     return [];
@@ -73,7 +65,6 @@ function loadTrades() {
 
 let trades = loadTrades();
 
-// SAVE TRADE HISTORY
 function saveTrades() {
   fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
@@ -88,14 +79,13 @@ function saveTrades() {
   fs.renameSync(tempFile, STORAGE_FILE);
 }
 
-// UPSTOX API REQUEST
+// UPSTOX REQUEST
 async function apiGet(url) {
   if (!TOKEN) {
     throw new Error("UPSTOX_ACCESS_TOKEN is missing");
   }
 
   const response = await fetch(url, {
-    method: "GET",
     headers: {
       Authorization: "Bearer " + TOKEN,
       Accept: "application/json"
@@ -103,15 +93,9 @@ async function apiGet(url) {
     signal: AbortSignal.timeout(15000)
   });
 
-  let body;
+  const body = await response.json();
 
-  try {
-    body = await response.json();
-  } catch {
-    throw new Error("Invalid response received from Upstox");
-  }
-
-  if (!response.ok || body.status === "error") {
+  if (!response.ok) {
     throw new Error(
       "Upstox API error: HTTP " + response.status
     );
@@ -122,63 +106,55 @@ async function apiGet(url) {
 
 // EMA
 function ema(values, period) {
-  if (!Array.isArray(values) || values.length < period) {
-    return null;
-  }
+  if (!values || values.length < period) return null;
 
   const multiplier = 2 / (period + 1);
 
-  let value =
+  let result =
     values.slice(0, period).reduce((a, b) => a + b, 0) /
     period;
 
   for (let i = period; i < values.length; i++) {
-    value =
+    result =
       values[i] * multiplier +
-      value * (1 - multiplier);
+      result * (1 - multiplier);
   }
 
-  return value;
+  return result;
 }
 
 // RSI
 function rsi(values, period = 14) {
-  if (!Array.isArray(values) || values.length <= period) {
-    return null;
-  }
+  if (!values || values.length <= period) return null;
 
-  let gain = 0;
-  let loss = 0;
+  let gains = 0;
+  let losses = 0;
 
   for (let i = 1; i <= period; i++) {
     const change = values[i] - values[i - 1];
 
-    if (change > 0) {
-      gain += change;
-    } else {
-      loss -= change;
-    }
+    if (change > 0) gains += change;
+    else losses -= change;
   }
 
-  let averageGain = gain / period;
-  let averageLoss = loss / period;
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
 
   for (let i = period + 1; i < values.length; i++) {
     const change = values[i] - values[i - 1];
 
-    averageGain =
-      (averageGain * (period - 1) + Math.max(change, 0)) /
+    avgGain =
+      (avgGain * (period - 1) + Math.max(change, 0)) /
       period;
 
-    averageLoss =
-      (averageLoss * (period - 1) + Math.max(-change, 0)) /
+    avgLoss =
+      (avgLoss * (period - 1) + Math.max(-change, 0)) /
       period;
   }
 
-  if (averageLoss === 0) return 100;
+  if (avgLoss === 0) return 100;
 
-  const rs = averageGain / averageLoss;
-
+  const rs = avgGain / avgLoss;
   return 100 - 100 / (1 + rs);
 }
 
@@ -192,7 +168,7 @@ function istDateOffset(daysAgo = 0) {
   }).formatToParts(new Date());
 
   const get = type =>
-    parts.find(part => part.type === type)?.value;
+    parts.find(item => item.type === type).value;
 
   const date = new Date(
     `${get("year")}-${get("month")}-${get("day")}T00:00:00Z`
@@ -214,7 +190,7 @@ function marketTime() {
   }).formatToParts(new Date());
 
   const get = type =>
-    parts.find(part => part.type === type)?.value;
+    parts.find(item => item.type === type).value;
 
   return {
     day: get("weekday"),
@@ -224,96 +200,40 @@ function marketTime() {
 }
 
 function marketOpen() {
-  const time = marketTime();
-  const minutes = time.hour * 60 + time.minute;
+  const t = marketTime();
+  const minutes = t.hour * 60 + t.minute;
 
   return (
-    !["Sat", "Sun"].includes(time.day) &&
+    !["Sat", "Sun"].includes(t.day) &&
     minutes >= 555 &&
     minutes <= 930
   );
 }
 
-// ENTRY WINDOW
 function entryAllowed() {
-  const time = marketTime();
-  const minutes = time.hour * 60 + time.minute;
+  const t = marketTime();
+  const minutes = t.hour * 60 + t.minute;
 
   return (
-    !["Sat", "Sun"].includes(time.day) &&
+    !["Sat", "Sun"].includes(t.day) &&
     minutes >= 555 &&
     minutes <= 915
   );
 }
 
-// FUTURES VWAP CACHE
-let cachedNiftyFuture = null;
-let cachedNiftyFutureDate = null;
-let futuresVwapCache = null;
-let futuresVwapCacheAt = 0;
-
-// FIND NIFTY FUTURES CONTRACT
-async function getNiftyFutureKey() {
-  const today = istDateOffset(0);
-
-  if (
-    cachedNiftyFuture &&
-    cachedNiftyFutureDate === today
-  ) {
-    return cachedNiftyFuture;
-  }
-
-  const payload = await apiGet(
-    "https://api.upstox.com/v2/instruments/search?query=NIFTY&exchanges=NSE&segments=FO&instrument_types=FUT&page_number=1&records=30"
-  );
-
-  const contracts = (payload.data || [])
-    .filter(item =>
-      item.instrument_type === "FUT" &&
-      item.underlying_symbol === "NIFTY" &&
-      item.expiry >= today &&
-      item.instrument_key
-    )
-    .sort((a, b) =>
-      a.expiry.localeCompare(b.expiry)
-    );
-
-  if (!contracts.length) {
-    throw new Error("Active NIFTY futures contract not found");
-  }
-
-  cachedNiftyFuture = contracts[0].instrument_key;
-  cachedNiftyFutureDate = today;
-
-  return cachedNiftyFuture;
-}
-
-// FUTURES VWAP
-async function getFuturesVwap() {
-  if (
-    futuresVwapCache &&
-    Date.now() - futuresVwapCacheAt < 30000
-  ) {
-    return futuresVwapCache;
-  }
-
-  const key = await getNiftyFutureKey();
-
-  const today = istDateOffset(0);
-  const yesterday = istDateOffset(1);
+// CANDLE DATA
+async function getCandles() {
   const fromDate = istDateOffset(7);
+  const toDate = istDateOffset(0);
 
   const historicalUrl =
     "https://api.upstox.com/v3/historical-candle/" +
-    encodeURIComponent(key) +
-    "/minutes/5/" +
-    yesterday +
-    "/" +
-    fromDate;
+    encodeURIComponent(UNDERLYING) +
+    "/minutes/5/" + toDate + "/" + fromDate;
 
   const intradayUrl =
     "https://api.upstox.com/v3/historical-candle/intraday/" +
-    encodeURIComponent(key) +
+    encodeURIComponent(UNDERLYING) +
     "/minutes/5";
 
   const [historical, intraday] = await Promise.all([
@@ -321,173 +241,61 @@ async function getFuturesVwap() {
     apiGet(intradayUrl)
   ]);
 
-  const candles = [
-    ...(historical?.data?.candles || []),
-    ...(intraday?.data?.candles || [])
+  const all = [
+    ...(historical.data?.candles || []),
+    ...(intraday.data?.candles || [])
   ];
 
-  const todayStart = new Date(
-    today + "T00:00:00+05:30"
-  ).getTime();
-
   const now = Date.now();
+  const map = new Map();
 
-  let priceVolume = 0;
-  let totalVolume = 0;
-
-  for (const candle of candles) {
-    const timestamp = new Date(candle[0]).getTime();
-
-    const high = Number(candle[2]);
-    const low = Number(candle[3]);
-    const close = Number(candle[4]);
-    const volume = Number(candle[5] || 0);
+  for (const c of all) {
+    const time = new Date(c[0]).getTime();
 
     if (
-      timestamp >= todayStart &&
-      timestamp + 300000 <= now &&
-      Number.isFinite(high) &&
-      Number.isFinite(low) &&
-      Number.isFinite(close) &&
-      volume > 0
+      Number.isFinite(time) &&
+      time + 300000 <= now &&
+      Number.isFinite(Number(c[4]))
     ) {
-      const typicalPrice = (high + low + close) / 3;
-
-      priceVolume += typicalPrice * volume;
-      totalVolume += volume;
+      map.set(time, {
+        time,
+        open: Number(c[1]),
+        high: Number(c[2]),
+        low: Number(c[3]),
+        close: Number(c[4]),
+        volume: Number(c[5] || 0)
+      });
     }
   }
 
-  futuresVwapCache =
-    totalVolume > 0
-      ? {
-          value: priceVolume / totalVolume,
-          source: "NIFTY Futures"
-        }
-      : null;
-
-  futuresVwapCacheAt = Date.now();
-
-  return futuresVwapCache;
+  return [...map.values()].sort((a, b) => a.time - b.time);
 }
 
-// NIFTY INDICATORS
+// INDICATORS
 async function getIndicators() {
-  const yesterday = istDateOffset(1);
-  const fromDate = istDateOffset(7);
-
-  const historicalUrl =
-    "https://api.upstox.com/v3/historical-candle/" +
-    encodeURIComponent(UNDERLYING) +
-    "/minutes/5/" +
-    yesterday +
-    "/" +
-    fromDate;
-
-  const intradayUrl =
-    "https://api.upstox.com/v3/historical-candle/intraday/" +
-    encodeURIComponent(UNDERLYING) +
-    "/minutes/5";
-
-  const [historicalPayload, intradayPayload] =
-    await Promise.all([
-      apiGet(historicalUrl),
-      apiGet(intradayUrl)
-    ]);
-
-  const historical =
-    historicalPayload?.data?.candles || [];
-
-  const intraday =
-    intradayPayload?.data?.candles || [];
-
-  const now = Date.now();
-  const candleMap = new Map();
-
-  for (const candle of [...historical, ...intraday]) {
-    const timestamp = new Date(candle[0]).getTime();
-
-    const item = {
-      time: timestamp,
-      high: Number(candle[2]),
-      low: Number(candle[3]),
-      close: Number(candle[4]),
-      volume: Number(candle[5] || 0)
-    };
-
-    if (
-      Number.isFinite(item.time) &&
-      Number.isFinite(item.high) &&
-      Number.isFinite(item.low) &&
-      Number.isFinite(item.close) &&
-      item.time + 300000 <= now
-    ) {
-      candleMap.set(item.time, item);
-    }
-  }
-
-  const candles = [...candleMap.values()]
-    .sort((a, b) => a.time - b.time);
+  const candles = await getCandles();
 
   if (candles.length < 22) {
     return {
       status: "waiting",
       signal: "WAIT",
-      message: "Need at least 22 completed 5-minute candles",
+      message: "Not enough completed candles",
       completedCandles: candles.length
     };
   }
 
-  const closes = candles.map(item => item.close);
+  const closes = candles.map(c => c.close);
 
   const ema9 = ema(closes, 9);
   const ema21 = ema(closes, 21);
   const rsiValue = rsi(closes, 14);
 
-  if (
-    ema9 === null ||
-    ema21 === null ||
-    rsiValue === null
-  ) {
-    return {
-      status: "waiting",
-      signal: "WAIT",
-      message: "Indicator calculation waiting"
-    };
-  }
-
-  let vwapData = null;
-
-  try {
-    vwapData = await getFuturesVwap();
-  } catch (error) {
-    console.error("VWAP error:", error.message);
-  }
-
-  const vwap = vwapData?.value ?? null;
   const latest = candles[candles.length - 1];
 
   let signal = "WAIT";
 
-  if (
-    vwap !== null &&
-    latest.close > ema9 &&
-    ema9 > ema21 &&
-    latest.close > vwap &&
-    rsiValue >= 55 &&
-    rsiValue <= 70
-  ) {
-    signal = "CE";
-  } else if (
-    vwap !== null &&
-    latest.close < ema9 &&
-    ema9 < ema21 &&
-    latest.close < vwap &&
-    rsiValue >= 30 &&
-    rsiValue <= 45
-  ) {
-    signal = "PE";
-  }
+  // Signal is intentionally WAIT until a verified
+  // futures VWAP and option-chain feed are available.
 
   return {
     status: "ok",
@@ -496,166 +304,61 @@ async function getIndicators() {
     ema9,
     ema21,
     rsi: rsiValue,
-    vwap,
-    vwapSource: vwapData?.source || null,
+    vwap: null,
+    vwapSource: null,
     completedCandles: candles.length,
-    candleTime: new Date(latest.time).toISOString()
+    candleTime: new Date(latest.time).toISOString(),
+    message: "VWAP and option-chain validation pending"
   };
 }
 
-// NEAREST EXPIRY
-async function getNearestExpiry() {
-  const payload = await apiGet(
+// OPTION CONTRACTS
+async function getOptionContracts() {
+  const result = await apiGet(
     "https://api.upstox.com/v2/option/contract?instrument_key=" +
     encodeURIComponent(UNDERLYING)
   );
 
-  const contracts = payload.data || [];
-  const today = istDateOffset(0);
-
-  const expiries = [
-    ...new Set(
-      contracts
-        .map(item => item.expiry)
-        .filter(date => date >= today)
-    )
-  ].sort();
-
-  if (!expiries.length) {
-    throw new Error("No active NIFTY expiry found");
-  }
-
-  return {
-    expiry: expiries[0],
-    contracts: contracts.filter(
-      item => item.expiry === expiries[0]
-    )
-  };
+  return result.data || [];
 }
 
-// ATM OPTIONS
-async function getAtmOptions() {
-  const indicators = await getIndicators();
-
-  if (indicators.status !== "ok") {
-    throw new Error(indicators.message);
-  }
-
-  const expiryData = await getNearestExpiry();
-
-  const chainPayload = await apiGet(
+// OPTION CHAIN
+async function getOptionChain(expiry) {
+  const url =
     "https://api.upstox.com/v2/option/chain?instrument_key=" +
     encodeURIComponent(UNDERLYING) +
     "&expiry_date=" +
-    encodeURIComponent(expiryData.expiry)
-  );
+    encodeURIComponent(expiry);
 
-  const rows = chainPayload.data || [];
-
-  if (!rows.length) {
-    throw new Error("Option chain unavailable");
-  }
-
-  const spot = Number(
-    rows[0].underlying_spot_price || indicators.nifty
-  );
-
-  if (!Number.isFinite(spot)) {
-    throw new Error("NIFTY spot price unavailable");
-  }
-
-  const atm = rows.reduce((best, row) => {
-    return (
-      Math.abs(Number(row.strike_price) - spot) <
-      Math.abs(Number(best.strike_price) - spot)
-    ) ? row : best;
-  });
-
-  function makeOption(type) {
-    const side =
-      type === "CE"
-        ? atm.call_options
-        : atm.put_options;
-
-    if (!side?.instrument_key) return null;
-
-    const contract = expiryData.contracts.find(
-      item =>
-        item.instrument_key === side.instrument_key
-    );
-
-    const ltp = Number(side.market_data?.ltp);
-
-    if (
-      !contract ||
-      !Number.isFinite(ltp) ||
-      ltp <= 0
-    ) {
-      return null;
-    }
-
-    return {
-      type,
-      instrumentKey: contract.instrument_key,
-      symbol: contract.trading_symbol,
-      expiry: contract.expiry,
-      strike: Number(contract.strike_price),
-      lotSize: Number(contract.lot_size),
-      ltp
-    };
-  }
-
-  return {
-    indicators,
-    spot,
-    ce: makeOption("CE"),
-    pe: makeOption("PE")
-  };
+  const result = await apiGet(url);
+  return result.data || [];
 }
 
 // OPEN VIRTUAL TRADE
 function openTrade(option) {
   if (!option || !option.instrumentKey) return;
 
-  const alreadyOpen = trades.some(
-    trade => trade.status === "OPEN"
-  );
-
-  if (alreadyOpen) return;
+  if (trades.some(t => t.status === "OPEN")) return;
 
   const trade = {
     id: Date.now().toString(),
     status: "OPEN",
-
     type: option.type,
     symbol: option.symbol,
     instrumentKey: option.instrumentKey,
-
     expiry: option.expiry,
     strike: option.strike,
-
     lotSize: option.lotSize,
     quantity: option.lotSize,
-
     entryPrice: option.ltp,
-
     targetPrice: Number(
-      (
-        option.ltp *
-        (1 + TARGET_PERCENT / 100)
-      ).toFixed(2)
+      (option.ltp * (1 + TARGET_PERCENT / 100)).toFixed(2)
     ),
-
     stopPrice: Number(
-      (
-        option.ltp *
-        (1 - STOP_PERCENT / 100)
-      ).toFixed(2)
+      (option.ltp * (1 - STOP_PERCENT / 100)).toFixed(2)
     ),
-
     exitPrice: null,
     pnl: 0,
-
     entryTime: new Date().toISOString(),
     exitTime: null,
     exitReason: null
@@ -664,33 +367,26 @@ function openTrade(option) {
   trades.push(trade);
   saveTrades();
 
-  console.log(
-    "VIRTUAL DEMO ENTRY:",
-    trade.symbol,
-    trade.entryPrice
-  );
+  console.log("VIRTUAL ENTRY:", trade.symbol, trade.entryPrice);
 }
 
 // EXIT VIRTUAL TRADE
-function checkExit(option) {
-  const trade = trades.find(item =>
-    item.status === "OPEN" &&
-    item.instrumentKey === option.instrumentKey
+function checkExit(instrumentKey, ltp) {
+  const trade = trades.find(t =>
+    t.status === "OPEN" &&
+    t.instrumentKey === instrumentKey
   );
 
   if (!trade) return;
 
-  const ltp = Number(option.ltp);
+  ltp = Number(ltp);
 
   if (!Number.isFinite(ltp) || ltp <= 0) return;
 
   let reason = null;
 
-  if (ltp >= trade.targetPrice) {
-    reason = "TARGET";
-  } else if (ltp <= trade.stopPrice) {
-    reason = "STOP LOSS";
-  }
+  if (ltp >= trade.targetPrice) reason = "TARGET";
+  if (ltp <= trade.stopPrice) reason = "STOP LOSS";
 
   if (!reason) return;
 
@@ -700,23 +396,15 @@ function checkExit(option) {
   trade.exitReason = reason;
 
   trade.pnl = Number(
-    (
-      (ltp - trade.entryPrice) *
-      trade.quantity
-    ).toFixed(2)
+    ((ltp - trade.entryPrice) * trade.quantity).toFixed(2)
   );
 
   saveTrades();
 
-  console.log(
-    "VIRTUAL DEMO EXIT:",
-    reason,
-    "P/L:",
-    trade.pnl
-  );
+  console.log("VIRTUAL EXIT:", reason, "P/L:", trade.pnl);
 }
 
-// DEMO TRADING CYCLE
+// DEMO CYCLE
 async function tradingCycle() {
   if (busy) return;
 
@@ -725,7 +413,7 @@ async function tradingCycle() {
 
   try {
     if (!TOKEN) {
-      throw new Error("Upstox token missing");
+      throw new Error("Upstox access token missing");
     }
 
     if (!marketOpen()) {
@@ -734,82 +422,24 @@ async function tradingCycle() {
       return;
     }
 
-    const data = await getAtmOptions();
+    const indicators = await getIndicators();
+    indicatorsCache = indicators;
 
-    indicatorsCache = data.indicators;
-
-    const openTradeNow = trades.find(
-      trade => trade.status === "OPEN"
-    );
-
-    if (openTradeNow) {
-      const currentOption =
-        openTradeNow.type === "CE"
-          ? data.ce
-          : data.pe;
-
-      if (
-        currentOption &&
-        currentOption.instrumentKey ===
-          openTradeNow.instrumentKey
-      ) {
-        checkExit(currentOption);
-      } else {
-        const payload = await apiGet(
-          "https://api.upstox.com/v2/option/chain?instrument_key=" +
-          encodeURIComponent(UNDERLYING) +
-          "&expiry_date=" +
-          encodeURIComponent(openTradeNow.expiry)
-        );
-
-        const row = (payload.data || []).find(
-          item =>
-            Number(item.strike_price) ===
-            openTradeNow.strike
-        );
-
-        const side =
-          openTradeNow.type === "CE"
-            ? row?.call_options
-            : row?.put_options;
-
-        const ltp = Number(side?.market_data?.ltp);
-
-        if (
-          Number.isFinite(ltp) &&
-          ltp > 0
-        ) {
-          checkExit({
-            instrumentKey: openTradeNow.instrumentKey,
-            ltp
-          });
-        }
-      }
-    } else if (entryAllowed()) {
-      if (
-        data.indicators.signal === "CE" &&
-        data.ce
-      ) {
-        openTrade(data.ce);
-      } else if (
-        data.indicators.signal === "PE" &&
-        data.pe
-      ) {
-        openTrade(data.pe);
-      }
+    // Automatic entry is disabled until the
+    // futures VWAP and option feed are verified.
+    if (indicators.signal === "WAIT") {
+      cycleStatus = "Waiting for verified signal";
+      cycleError = null;
+      return;
     }
 
-    cycleStatus = "Running";
-    cycleError = null;
+    cycleStatus = "Waiting for option validation";
 
   } catch (error) {
     cycleStatus = "Error";
     cycleError = error.message;
 
-    console.error(
-      "Demo trading cycle error:",
-      error.message
-    );
+    console.error("Trading cycle:", error.message);
 
   } finally {
     busy = false;
@@ -819,17 +449,8 @@ async function tradingCycle() {
 // DASHBOARD
 app.get("/", (req, res) => {
   res.sendFile(DASHBOARD_FILE, error => {
-    if (error) {
-      console.error(
-        "Dashboard file error:",
-        error.message
-      );
-
-      if (!res.headersSent) {
-        res.status(500).send(
-          "Dashboard HTML file not found. Check the project root."
-        );
-      }
+    if (error && !res.headersSent) {
+      res.status(500).send("Dashboard HTML file not found");
     }
   });
 });
@@ -869,7 +490,7 @@ app.get("/config", (req, res) => {
   });
 });
 
-// NIFTY LIVE DATA
+// NIFTY LIVE
 app.get("/nifty", (req, res) => {
   res.json({
     status: feedStatus,
@@ -892,18 +513,49 @@ app.get("/indicators", async (req, res) => {
   }
 });
 
+// OPTION CONTRACTS
+app.get("/option-contracts", async (req, res) => {
+  try {
+    const data = await getOptionContracts();
+    res.json({ status: "ok", data });
+  } catch (error) {
+    res.status(502).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+
+// OPTION CHAIN
+app.get("/option-chain", async (req, res) => {
+  try {
+    const expiry = req.query.expiry;
+
+    if (!expiry) {
+      return res.status(400).json({
+        status: "error",
+        message: "Expiry date is required"
+      });
+    }
+
+    const data = await getOptionChain(expiry);
+    res.json({ status: "ok", data });
+
+  } catch (error) {
+    res.status(502).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+
 // TRADE HISTORY
 app.get("/demo-trades", (req, res) => {
-  const closedTrades = trades.filter(
-    trade => trade.status === "CLOSED"
-  );
-
-  const openTrades = trades.filter(
-    trade => trade.status === "OPEN"
-  );
+  const openTrades = trades.filter(t => t.status === "OPEN");
+  const closedTrades = trades.filter(t => t.status === "CLOSED");
 
   const totalPnl = closedTrades.reduce(
-    (sum, trade) => sum + Number(trade.pnl || 0),
+    (sum, t) => sum + Number(t.pnl || 0),
     0
   );
 
@@ -923,27 +575,20 @@ app.get("/demo-status", (req, res) => {
     lastCycleTime,
     cycleError,
     indicators: indicatorsCache,
-    openTrades: trades.filter(
-      trade => trade.status === "OPEN"
-    ),
+    openTrades: trades.filter(t => t.status === "OPEN"),
     realOrders: false
   });
 });
 
 // SERVER START
 app.listen(PORT, () => {
-  console.log(
-    "NIFTY Demo backend running on port " + PORT
-  );
+  console.log("NIFTY backend running on port " + PORT);
 
   if (!TOKEN) {
     feedStatus = "Error";
     cycleStatus = "Error";
-
-    console.error(
-      "UPSTOX_ACCESS_TOKEN is missing"
-    );
-
+    cycleError = "UPSTOX_ACCESS_TOKEN is missing";
+    console.error(cycleError);
     return;
   }
 
@@ -957,26 +602,58 @@ app.listen(PORT, () => {
 
     streamer.on("open", () => {
       feedStatus = "Connected";
-
       console.log("Upstox WebSocket connected");
 
       try {
-        streamer.subscribe(
-          [UNDERLYING],
-          "ltpc"
-        );
+        streamer.subscribe([UNDERLYING], "ltpc");
       } catch (error) {
-        console.error(
-          "NIFTY subscription error:",
-          error.message
-        );
+        console.error("Subscribe error:", error.message);
       }
     });
 
     streamer.on("message", data => {
       try {
-        let message = data;
-
         if (Buffer.isBuffer(data)) {
-          message = data.toString("utf8");
-       
+          latestNiftyData = {
+            raw: data.toString("base64"),
+            format: "binary"
+          };
+        } else if (typeof data === "string") {
+          latestNiftyData = JSON.parse(data);
+        } else {
+          latestNiftyData = data;
+        }
+
+        lastUpdateTime = new Date().toISOString();
+
+      } catch (error) {
+        console.error("Feed message error:", error.message);
+      }
+    });
+
+    streamer.on("reconnecting", () => {
+      feedStatus = "Reconnecting";
+    });
+
+    streamer.on("error", error => {
+      feedStatus = "Error";
+      console.error("WebSocket error:", error.message || error);
+    });
+
+    streamer.on("close", () => {
+      feedStatus = "Disconnected";
+    });
+
+    streamer.connect();
+
+    tradingCycle();
+    setInterval(tradingCycle, POLL_MS);
+
+  } catch (error) {
+    feedStatus = "Error";
+    cycleStatus = "Error";
+    cycleError = error.message;
+
+    console.error("Startup error:", error.message);
+  }
+});
