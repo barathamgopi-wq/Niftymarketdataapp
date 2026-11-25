@@ -29,6 +29,7 @@ const POLL_MS = 10000;
 
 const STORAGE_DIR = process.env.DATA_DIR || "/data";
 const STORAGE_FILE = path.join(STORAGE_DIR, "demo-trades.json");
+
 const DASHBOARD_FILE = path.join(
   __dirname,
   "NIFTY_Demo_Live_Price_Ready-2.html"
@@ -294,7 +295,7 @@ async function getIndicators() {
 
   let signal = "WAIT";
 
-  // Signal is intentionally WAIT until a verified
+  // Signal is intentionally WAIT until verified
   // futures VWAP and option-chain feed are available.
 
   return {
@@ -320,6 +321,25 @@ async function getOptionContracts() {
   );
 
   return result.data || [];
+}
+
+// UPCOMING OPTION EXPIRIES
+function getUpcomingExpiries(contracts) {
+  const today = istDateOffset(0);
+
+  return [...new Set(
+    (contracts || [])
+      .map(item =>
+        item.expiry ||
+        item.expiryDate ||
+        item.expiry_date
+      )
+      .filter(value =>
+        typeof value === "string" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(value)
+      )
+      .filter(value => value >= today)
+  )].sort();
 }
 
 // OPTION CHAIN
@@ -425,8 +445,9 @@ async function tradingCycle() {
     const indicators = await getIndicators();
     indicatorsCache = indicators;
 
-    // Automatic entry is disabled until the
+    // Automatic entry remains disabled until
     // futures VWAP and option feed are verified.
+
     if (indicators.signal === "WAIT") {
       cycleStatus = "Waiting for verified signal";
       cycleError = null;
@@ -517,7 +538,34 @@ app.get("/indicators", async (req, res) => {
 app.get("/option-contracts", async (req, res) => {
   try {
     const data = await getOptionContracts();
-    res.json({ status: "ok", data });
+
+    res.json({
+      status: "ok",
+      data
+    });
+
+  } catch (error) {
+    res.status(502).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+
+// OPTION EXPIRIES
+app.get("/expiries", async (req, res) => {
+  try {
+    const contracts = await getOptionContracts();
+    const expiries = getUpcomingExpiries(contracts);
+
+    res.json({
+      status: "ok",
+      todayIST: istDateOffset(0),
+      nearestExpiry: expiries[0] || null,
+      expiries,
+      contractCount: contracts.length
+    });
+
   } catch (error) {
     res.status(502).json({
       status: "error",
@@ -529,17 +577,30 @@ app.get("/option-contracts", async (req, res) => {
 // OPTION CHAIN
 app.get("/option-chain", async (req, res) => {
   try {
-    const expiry = req.query.expiry;
+    let expiry = req.query.expiry;
 
+    // Automatically select nearest upcoming expiry
     if (!expiry) {
-      return res.status(400).json({
-        status: "error",
-        message: "Expiry date is required"
-      });
+      const contracts = await getOptionContracts();
+      const expiries = getUpcomingExpiries(contracts);
+
+      expiry = expiries[0];
+
+      if (!expiry) {
+        return res.status(404).json({
+          status: "error",
+          message: "No upcoming expiry date found"
+        });
+      }
     }
 
     const data = await getOptionChain(expiry);
-    res.json({ status: "ok", data });
+
+    res.json({
+      status: "ok",
+      expiry,
+      data
+    });
 
   } catch (error) {
     res.status(502).json({
