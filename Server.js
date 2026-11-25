@@ -48,7 +48,13 @@ let cycleError = null;
 let busy = false;
 let futuresInstrument = null;
 let lastFutureResolve = 0;
+
 let optionScanCache = [];
+let optionScanUpdatedAt = 0;
+let optionScanError = null;
+let optionScanPromise = null;
+const OPTION_SCAN_CACHE_MS = 30000;
+
 let activity = [];
 
 // STORAGE
@@ -87,7 +93,6 @@ function loadTrades() {
       throw new Error("Trade history is not an array");
     }
 
-    // Existing records are preserved.
     trades = data;
     storageReady = true;
     storageError = null;
@@ -590,6 +595,7 @@ async function getIndicators() {
 
   return indicatorsCache;
 }
+
 // OPTION CONTRACTS
 async function getOptionContracts() {
   const result = await apiGet(
@@ -647,7 +653,6 @@ async function getOptionQuote(instrumentKey) {
   );
 
   const item = Object.values(result.data || {})[0];
-
   const price = Number(item?.last_price);
 
   if (!(price > 0)) {
@@ -657,7 +662,103 @@ async function getOptionQuote(instrumentKey) {
   return price;
 }
 
-// SCAN ATM OPTION
+// REFRESH OPTION SCANNER INDEPENDENTLY
+async function refreshOptionScanner() {
+  if (
+    optionScanCache.length &&
+    Date.now() - optionScanUpdatedAt < OPTION_SCAN_CACHE_MS
+  ) {
+    return optionScanCache;
+  }
+
+  // Prevent duplicate simultaneous Upstox requests.
+  if (optionScanPromise) {
+    return optionScanPromise;
+  }
+
+  optionScanPromise = (async () => {
+    try {
+      const { expiry } = await getNearestExpiry();
+
+      const [chain, spot] = await Promise.all([
+        getOptionChain(expiry),
+        getNiftyLTP()
+      ]);
+
+      if (!Array.isArray(chain) || !chain.length) {
+        throw new Error("Upstox option chain is empty");
+      }
+
+      const nearest = chain
+        .filter(row =>
+          Number.isFinite(Number(row.strike_price))
+        )
+        .sort((a, b) =>
+          Math.abs(Number(a.strike_price) - spot) -
+          Math.abs(Number(b.strike_price) - spot)
+        )
+        .slice(0, 21)
+        .sort((a, b) =>
+          Number(a.strike_price) - Number(b.strike_price)
+        );
+
+      if (!nearest.length) {
+        throw new Error("No valid option strikes returned");
+      }
+
+      const newCache = nearest.map(row => ({
+        strike: Number(row.strike_price),
+
+        ce: row.call_options ? {
+          instrumentKey: row.call_options.instrument_key || null,
+          ltp: row.call_options.market_data?.ltp ?? null,
+          volume: row.call_options.market_data?.volume ?? null,
+          oi: row.call_options.market_data?.oi ?? null,
+          delta: row.call_options.option_greeks?.delta ?? null
+        } : null,
+
+        pe: row.put_options ? {
+          instrumentKey: row.put_options.instrument_key || null,
+          ltp: row.put_options.market_data?.ltp ?? null,
+          volume: row.put_options.market_data?.volume ?? null,
+          oi: row.put_options.market_data?.oi ?? null,
+          delta: row.put_options.option_greeks?.delta ?? null
+        } : null,
+
+        pcr: row.pcr ?? null
+      }));
+
+      // Replace cache only after a successful complete scan.
+      optionScanCache = newCache;
+      optionScanUpdatedAt = Date.now();
+      optionScanError = null;
+
+      log("SCAN", "Option scanner refreshed", {
+        expiry,
+        spot,
+        strikes: optionScanCache.length
+      });
+
+      return optionScanCache;
+
+    } catch (error) {
+      optionScanError = error.message;
+
+      log("ERROR", "Option scanner refresh failed", {
+        error: error.message
+      });
+
+      throw error;
+
+    } finally {
+      optionScanPromise = null;
+    }
+  })();
+
+  return optionScanPromise;
+}
+
+// SCAN ATM OPTION FOR VIRTUAL ENTRY
 async function scanATMOption(signal, spot) {
   const { expiry, contracts } = await getNearestExpiry();
   const chain = await getOptionChain(expiry);
@@ -725,29 +826,6 @@ async function scanATMOption(signal, spot) {
     iv: option.option_greeks?.iv ?? null,
     pcr: atm.pcr ?? null
   };
-
-  optionScanCache = rows
-    .sort((a, b) =>
-      Number(a.strike_price) - Number(b.strike_price)
-    )
-    .map(row => ({
-      strike: Number(row.strike_price),
-      ce: row.call_options ? {
-        instrumentKey: row.call_options.instrument_key,
-        ltp: row.call_options.market_data?.ltp ?? null,
-        volume: row.call_options.market_data?.volume ?? null,
-        oi: row.call_options.market_data?.oi ?? null,
-        delta: row.call_options.option_greeks?.delta ?? null
-      } : null,
-      pe: row.put_options ? {
-        instrumentKey: row.put_options.instrument_key,
-        ltp: row.put_options.market_data?.ltp ?? null,
-        volume: row.put_options.market_data?.volume ?? null,
-        oi: row.put_options.market_data?.oi ?? null,
-        delta: row.put_options.option_greeks?.delta ?? null
-      } : null,
-      pcr: row.pcr ?? null
-    }));
 
   log("SCAN", "ATM option selected", {
     symbol: result.symbol,
@@ -840,332 +918,4 @@ async function checkOpenTrade() {
 
   let exitReason = null;
 
-  if (ltp >= trade.targetPrice) {
-    exitReason = "TARGET";
-  } else if (ltp <= trade.stopPrice) {
-    exitReason = "STOP LOSS";
-  }
-
-  if (!exitReason) return;
-
-  const oldTrade = { ...trade };
-
-  trade.status = "CLOSED";
-  trade.exitPrice = ltp;
-  trade.exitTime = new Date().toISOString();
-  trade.exitReason = exitReason;
-  trade.pnl = Number(
-    ((ltp - trade.entryPrice) * trade.quantity).toFixed(2)
-  );
-
-  try {
-    saveTrades();
-  } catch (error) {
-    Object.assign(trade, oldTrade);
-    throw error;
-  }
-
-  log("EXIT", "Virtual trade closed", {
-    id: trade.id,
-    reason: exitReason,
-    exitPrice: ltp,
-    pnl: trade.pnl
-  });
-}
-
-// MAIN VIRTUAL TRADING CYCLE
-async function tradingCycle() {
-  if (busy) return;
-
-  busy = true;
-  lastCycleTime = new Date().toISOString();
-
-  try {
-    if (!TOKEN) {
-      throw new Error("UPSTOX_ACCESS_TOKEN is missing");
-    }
-
-    if (!storageReady) {
-      throw new Error("Trade storage unavailable");
-    }
-
-    if (!marketOpen()) {
-      cycleStatus = "Market closed";
-      cycleError = null;
-      return;
-    }
-
-    // Always check existing open trade first.
-    await checkOpenTrade();
-
-    const existing = trades.some(
-      t => t.status === "OPEN"
-    );
-
-    const analysis = await getIndicators();
-
-    if (existing) {
-      cycleStatus = "Monitoring open virtual trade";
-      cycleError = null;
-      return;
-    }
-
-    if (!entryAllowed()) {
-      cycleStatus = "Entry time closed";
-      cycleError = null;
-      return;
-    }
-
-    if (
-      analysis.signal !== "BUY CE" &&
-      analysis.signal !== "BUY PE"
-    ) {
-      cycleStatus = "Waiting for strategy signal";
-      cycleError = null;
-      return;
-    }
-
-    log("SCAN", "Strategy signal detected", {
-      signal: analysis.signal,
-      nifty: analysis.nifty,
-      rsi: analysis.rsi
-    });
-
-    const option = await scanATMOption(
-      analysis.signal,
-      analysis.nifty
-    );
-
-    if (!(option.ltp > 0)) {
-      throw new Error("Option premium validation failed");
-    }
-
-    openTrade(option);
-
-    cycleStatus = "Virtual trade opened";
-    cycleError = null;
-
-  } catch (error) {
-    cycleStatus = "Error";
-    cycleError = error.message;
-
-    log("ERROR", "Trading cycle failed", {
-      error: error.message
-    });
-
-  } finally {
-    busy = false;
-  }
-}
-
-// DAILY P&L
-function getDailyPnl() {
-  const today = istDateOffset(0);
-
-  return trades
-    .filter(t =>
-      t.status === "CLOSED" &&
-      t.exitTime &&
-      new Date(t.exitTime).toLocaleDateString(
-        "en-CA",
-        { timeZone: "Asia/Kolkata" }
-      ) === today
-    )
-    .reduce((sum, t) => sum + Number(t.pnl || 0), 0);
-}
-
-// DASHBOARD
-app.get("/", (req, res) => {
-  res.sendFile(DASHBOARD_FILE, error => {
-    if (error && !res.headersSent) {
-      res.status(404).send(
-        "Dashboard HTML file not found"
-      );
-    }
-  });
-});
-
-// HEALTH
-app.get("/health", (req, res) => {
-  res.json({
-    status: "OK",
-    feed: feedStatus,
-    lastUpdateTime,
-    demoTrading: cycleStatus,
-    lastCycleTime,
-    cycleError,
-    storageReady,
-    storageError
-  });
-});
-
-// STATUS
-app.get("/status", (req, res) => {
-  res.json({
-    app: "NIFTY Virtual Trading",
-    status: "Running",
-    feed: feedStatus,
-    demoTrading: cycleStatus,
-    realOrders: false
-  });
-});
-
-// CONFIG
-app.get("/config", (req, res) => {
-  res.json({
-    tokenConfigured: Boolean(TOKEN),
-    demoTrading: true,
-    realOrders: false,
-    targetPercent: TARGET_PERCENT,
-    stopPercent: STOP_PERCENT,
-    pollMilliseconds: POLL_MS
-  });
-});
-
-// NIFTY LIVE PRICE
-app.get("/nifty", (req, res) => {
-  res.json({
-    status: feedStatus,
-    lastUpdateTime,
-    data: latestNiftyData,
-    nifty: latestNiftyData?.ltp ?? null
-  });
-});
-
-// INDICATORS
-app.get("/indicators", async (req, res) => {
-  try {
-    const data = await getIndicators();
-    res.json(data);
-  } catch (error) {
-    res.status(502).json({
-      status: "waiting",
-      signal: "WAIT",
-      message: error.message
-    });
-  }
-});
-
-// OPTION SCAN
-app.get("/option-scan", (req, res) => {
-  res.json({
-    status: "ok",
-    data: optionScanCache
-  });
-});
-
-// ATM OPTION CHAIN
-app.get("/atm-option-chain", async (req, res) => {
-  try {
-    const { expiry } = await getNearestExpiry();
-    const chain = await getOptionChain(expiry);
-
-    const spot = await getNiftyLTP();
-
-    const nearest = chain
-      .filter(x => Number.isFinite(Number(x.strike_price)))
-      .sort((a, b) =>
-        Math.abs(Number(a.strike_price) - spot) -
-        Math.abs(Number(b.strike_price) - spot)
-      )
-      .slice(0, 21)
-      .sort((a, b) =>
-        Number(a.strike_price) - Number(b.strike_price)
-      );
-
-    const atm = nearest.reduce((best, row) =>
-      Math.abs(Number(row.strike_price) - spot) <
-      Math.abs(Number(best.strike_price) - spot)
-        ? row
-        : best,
-      nearest[0]
-    );
-
-    res.json({
-      status: "ok",
-      expiry,
-      spot,
-      atmStrike: atm ? Number(atm.strike_price) : null,
-      count: nearest.length,
-      data: nearest
-    });
-
-  } catch (error) {
-    res.status(502).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-
-// TRADE HISTORY
-app.get("/demo-trades", (req, res) => {
-  const openTrades = trades.filter(
-    t => t.status === "OPEN"
-  );
-
-  const closedTrades = trades.filter(
-    t => t.status === "CLOSED"
-  );
-
-  const totalPnl = closedTrades.reduce(
-    (sum, t) => sum + Number(t.pnl || 0),
-    0
-  );
-
-  res.json({
-    trades,
-    openTrades,
-    closedTrades,
-    totalTrades: trades.length,
-    dailyPnl: Number(getDailyPnl().toFixed(2)),
-    totalPnl: Number(totalPnl.toFixed(2)),
-    storageReady,
-    storageError
-  });
-});
-
-// DEMO STATUS
-app.get("/demo-status", (req, res) => {
-  res.json({
-    status: cycleStatus,
-    lastCycleTime,
-    cycleError,
-    indicators: indicatorsCache,
-    openTrades: trades.filter(
-      t => t.status === "OPEN"
-    ),
-    dailyPnl: Number(getDailyPnl().toFixed(2)),
-    realOrders: false
-  });
-});
-
-// ACTIVITY
-app.get("/activity", (req, res) => {
-  res.json({
-    status: "ok",
-    data: activity
-  });
-});
-
-// SERVER START
-app.listen(PORT, () => {
-  console.log(
-    "NIFTY Virtual Trading server running on port " + PORT
-  );
-
-  if (!TOKEN) {
-    feedStatus = "Error";
-    cycleStatus = "Error";
-    cycleError = "UPSTOX_ACCESS_TOKEN is missing";
-    console.error(cycleError);
-    return;
-  }
-
-  tradingCycle();
-
-  setInterval(() => {
-    tradingCycle();
-  }, POLL_MS);
-});
-    
+  if (ltp >= trade.tar
