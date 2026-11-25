@@ -137,7 +137,6 @@ async function getNiftyFutureKey() {
     return cachedNiftyFuture;
   }
 
-  // records reduced to 30
   const payload = await apiGet(
     "https://api.upstox.com/v2/instruments/search?query=NIFTY&exchanges=NSE&segments=FO&instrument_types=FUT&page_number=1&records=30"
   );
@@ -335,7 +334,9 @@ async function getIndicators() {
     completedCandles: candles.length,
     candleTime: new Date(latest.time).toISOString()
   };
-}// Market hours
+}
+
+// Market hours
 function marketOpen() {
   const now = new Date();
 
