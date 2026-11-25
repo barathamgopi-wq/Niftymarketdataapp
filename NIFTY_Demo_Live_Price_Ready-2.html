@@ -1,150 +1,25 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0b1220">
-<title>NIFTY Virtual Live Auto Trading</title>
-<style>
-:root{color-scheme:dark}*{box-sizing:border-box}
-body{margin:0;background:#0b1220;color:#e7edf7;font-family:Arial,sans-serif}
-header{padding:18px 12px;text-align:center;background:#121d30;border-bottom:1px solid #263650}
-h1{margin:0;color:#38bdf8;font-size:22px}header p{margin:7px 0 0;color:#a8b7ce;font-size:12px}
-main{max-width:1050px;margin:auto;padding:13px}
-.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.card{background:#131e31;border:1px solid #253650;border-radius:12px;padding:15px;min-width:0}
-h2{font-size:15px;color:#8bd5ff;margin:0 0 13px}
-.big{font-size:30px;font-weight:bold;overflow-wrap:anywhere}
-.row{display:flex;justify-content:space-between;gap:12px;margin:10px 0;font-size:14px}
-.val{text-align:right;font-weight:bold;overflow-wrap:anywhere}
-.small{font-size:12px;color:#9fb0c9;line-height:1.5;overflow-wrap:anywhere}
-.green{color:#4ade80}.red{color:#fb7185}.yellow{color:#fbbf24}
-.status{padding:11px;border-radius:8px;background:#1d2a40;margin-bottom:12px;font-size:13px}
-button{background:#0284c7;border:0;color:white;border-radius:8px;padding:11px 15px;font-weight:bold}
-.tablewrap{overflow-x:auto}table{width:100%;min-width:650px;border-collapse:collapse;font-size:12px}
-th,td{padding:9px;border-bottom:1px solid #263650;text-align:left}th{color:#8bd5ff}
-footer{text-align:center;color:#71849e;font-size:12px;padding:18px}
-@media(max-width:620px){.grid{grid-template-columns:1fr}h1{font-size:19px}.big{font-size:27px}}
-</style>
-</head>
-<body>
-<header>
-<h1>📈 NIFTY VIRTUAL LIVE AUTO TRADING</h1>
-<p>Live market data • Virtual mode only • Real orders disabled</p>
-</header>
-<main>
-<div class="status" id="connection">Connecting to backend...</div>
-<div class="grid">
-<section class="card">
-<h2>📊 NIFTY LIVE PRICE</h2>
-<div class="big" id="nifty">--</div>
-<div class="small" id="feedTime">Waiting for market feed...</div>
-<div class="row"><span>Feed status</span><span class="val" id="feed">--</span></div>
-</section>
-<section class="card">
-<h2>🕒 MARKET & SYSTEM</h2>
-<div class="row"><span>Market session</span><span class="val" id="market">--</span></div>
-<div class="row"><span>Virtual engine</span><span class="val" id="engine">--</span></div>
-<div class="row"><span>History storage</span><span class="val" id="history">--</span></div>
-<div class="row"><span>Real orders</span><span class="val green">DISABLED</span></div>
-</section>
-<section class="card">
-<h2>📉 NIFTY INDICATORS</h2>
-<div class="row"><span>EMA 9</span><span class="val" id="ema9">--</span></div>
-<div class="row"><span>EMA 21</span><span class="val" id="ema21">--</span></div>
-<div class="row"><span>RSI 14</span><span class="val" id="rsi">--</span></div>
-<div class="row"><span>VWAP</span><span class="val" id="vwap">Not available</span></div>
-<div class="row"><span>Signal</span><span class="val yellow" id="signal">WAIT</span></div>
-<div class="small" id="indicatorMessage">Indicators will load when API data is available.</div>
-</section>
-<section class="card">
-<h2>🤖 VIRTUAL AUTO TRADING</h2>
-<div class="row"><span>System status</span><span class="val" id="tradeStatus">--</span></div>
-<div class="row"><span>Open virtual trades</span><span class="val" id="openCount">--</span></div>
-<div class="row"><span>Closed trade P&amp;L</span><span class="val" id="totalPnl">--</span></div>
-<div class="row"><span>New entry cutoff</span><span class="val">3:25 PM IST</span></div>
-<div class="row"><span>Market close handling</span><span class="val">3:30 PM IST</span></div>
-<div class="small" id="cycleMessage">--</div>
-</section>
-</div>
-<section class="card" style="margin-top:12px">
-<h2>📜 VIRTUAL TRADE HISTORY</h2>
-<div class="tablewrap">
-<table>
-<thead><tr><th>Entry time</th><th>Symbol</th><th>Side</th><th>Entry</th><th>Target</th><th>Stop</th><th>Exit</th><th>P&amp;L</th><th>Status</th></tr></thead>
-<tbody id="historyRows"><tr><td colspan="9">Loading...</td></tr></tbody>
-</table>
-</div>
-</section>
-<section class="card" style="margin-top:12px">
-<h2>ℹ️ IMPORTANT SAFETY INFORMATION</h2>
-<p class="small">This dashboard is a virtual-trading monitor, not investment advice. Real-money orders are disabled. The current backend intentionally blocks automatic new entries until a verified option-chain scanner and valid VWAP source are implemented and tested. Missing or stale quotes are never replaced with guessed prices. Existing history is preserved in the Railway data volume.</p>
-<button id="refresh">Refresh now</button>
-<div class="small" id="updated" style="margin-top:10px">--</div>
-</section>
-<footer>Bharatham Gopi • NIFTY Virtual Live Auto Trading</footer>
-</main>
-<script>
-"use strict";
-const API=location.origin;
-const $=id=>document.getElementById(id);
-const num=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"--":Number(v).toLocaleString("en-IN",{maximumFractionDigits:2});
-const money=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"--":"₹"+Number(v).toLocaleString("en-IN",{maximumFractionDigits:2});
-async function get(path){
- const r=await fetch(API+path,{cache:"no-store"});
- if(!r.ok)throw new Error(path+" HTTP "+r.status);
- return r.json();
-}
-function set(id,v){$(id).textContent=v===null||v===undefined||v===""?"--":String(v)}
-function time(v){return v?new Date(v).toLocaleString("en-IN"):"--"}
-async function refreshAll(){
- try{
-  const [health,feed,ind,stat,hist]=await Promise.allSettled([
-   get("/health"),get("/nifty"),get("/indicators"),get("/demo-status"),get("/demo-trades")
-  ]);
-  if(health.status==="fulfilled"){
-   const d=health.value;
-   set("connection","Backend connected • "+d.status);
-   set("feed",d.feed);set("engine",d.virtualTrading);
-   set("history",d.historyReady?"Verified":"Blocked");
-   set("tradeStatus",d.virtualTrading);
-   set("cycleMessage",d.cycleError||("Last cycle: "+time(d.lastCycleAt)));
-  }else{set("connection","Backend connection unavailable");}
-  if(feed.status==="fulfilled"){
-   const d=feed.value,q=d.quote;
-   set("nifty",q?num(q.ltp):"--");
-   set("feedTime",q?"Feed time: "+time(q.ltt?Number(q.ltt):d.lastUpdateTime):"Waiting for a valid live quote");
-   set("feed",d.status);
-  }
-  if(ind.status==="fulfilled"){
-   const d=ind.value;
-   set("ema9",num(d.ema9));set("ema21",num(d.ema21));set("rsi",num(d.rsi));
-   set("vwap",num(d.vwap));set("signal",d.signal||"WAIT");
-   set("indicatorMessage",d.message||("Completed candles: "+(d.completedCandles??"--")));
-  }else{set("indicatorMessage","Indicator data unavailable; entries must remain blocked.");}
-  if(stat.status==="fulfilled"){
-   const d=stat.value;set("tradeStatus",d.status);
-   set("openCount",Array.isArray(d.openTrades)?d.openTrades.length:0);
-   set("cycleMessage",d.cycleError||("Last cycle: "+time(d.lastCycleTime)));
-  }
-  if(hist.status==="fulfilled"){
-   const d=hist.value;set("totalPnl",money(d.totalPnl));
-   const rows=$("historyRows");rows.replaceChildren();
-   const items=Array.isArray(d.trades)?d.trades.slice().reverse():[];
-   if(!items.length){const tr=document.createElement("tr"),td=document.createElement("td");td.colSpan=9;td.textContent=d.historyReady?"No virtual trades yet":"History unavailable; file preserved and trading blocked";tr.append(td);rows.append(tr);}
-   for(const t of items){
-    const tr=document.createElement("tr");
-    const vals=[time(t.entryTime),t.symbol,t.type,num(t.entryPrice),num(t.targetPrice),num(t.stopPrice),num(t.exitPrice),money(t.pnl),t.status];
-    vals.forEach((v,i)=>{const td=document.createElement("td");td.textContent=v??"--";if(i===7&&Number(t.pnl)>0)td.className="green";if(i===7&&Number(t.pnl)<0)td.className="red";tr.append(td)});
-    rows.append(tr);
-   }
-  }
-  set("updated","Last dashboard refresh: "+new Date().toLocaleTimeString("en-IN"));
- }catch(e){set("connection","Dashboard refresh error: "+e.message)}
-}
-$("refresh").addEventListener("click",refreshAll);
-refreshAll();
-setInterval(refreshAll,10000);
-</script>
-</body>
-</html>
+<!doctype html><html lang="te"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07111f"><title>NIFTY Virtual Auto Trading</title><style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#07111f;color:#e8f0fb;font:14px Arial,sans-serif}header{padding:18px 14px;text-align:center;background:#101e32;border-bottom:1px solid #28405d}h1{margin:0;color:#60c8ff;font-size:21px}header p{color:#a9bdd5;margin:8px 0 0;font-size:12px}main{max-width:1250px;margin:auto;padding:12px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.card{background:#101e32;border:1px solid #29405d;border-radius:12px;padding:14px;min-width:0;margin-bottom:12px}h2{font-size:15px;color:#83d5ff;margin:0 0 12px}.big{font-size:30px;font-weight:bold}.muted,.small{color:#9db1cb;font-size:12px;line-height:1.5}.row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #233650}.row span:last-child{text-align:right;font-weight:bold;overflow-wrap:anywhere}.green{color:#4ade80}.red{color:#fb7185}.yellow{color:#facc15}.blue{color:#7dd3fc}.pill{display:inline-block;padding:4px 8px;border-radius:20px;background:#243851;font-size:11px}.buttons{display:flex;gap:8px;flex-wrap:wrap}button{border:0;border-radius:8px;padding:10px 13px;background:#0284c7;color:white;font-weight:bold}button.secondary{background:#33465f}table{border-collapse:collapse;width:100%;min-width:780px;font-size:12px}th,td{text-align:left;padding:8px;border-bottom:1px solid #29405d;white-space:nowrap}th{color:#83d5ff}.scroll{overflow:auto}.event{padding:8px 0;border-bottom:1px solid #263b55}.event b{color:#7dd3fc}.check{display:grid;grid-template-columns:1fr 1fr;gap:7px}.check div{padding:8px;background:#172a42;border-radius:7px;font-size:12px}.ce{color:#4ade80}.pe{color:#fb7185}footer{text-align:center;color:#7389a6;padding:18px;font-size:11px}@media(max-width:700px){.grid{grid-template-columns:1fr}h1{font-size:18px}.big{font-size:26px}.check{grid-template-columns:1fr}}
+</style></head><body><header><h1>📈 NIFTY VIRTUAL LIVE AUTO TRADING</h1><p>REAL ORDERS: DISABLED FOREVER · VIRTUAL SIMULATION ONLY · Bharatham Gopi</p></header><main>
+<div class="card"><div class="row"><span>Backend</span><span id="connection" class="yellow">Connecting...</span></div><div class="row"><span>Market session / Entry window</span><span id="session">--</span></div><div class="row"><span>Virtual engine</span><span id="engine">--</span></div><div class="row"><span>Storage</span><span id="storage">--</span></div><div class="row"><span>Last scan cycle</span><span id="lastCycle">--</span></div><div class="row"><span>Last error</span><span id="error">None</span></div><div class="buttons" style="margin-top:12px"><button id="refresh">Refresh now</button><button id="notify" class="secondary">Enable sound & notifications</button></div><div class="small" id="notifyState">Notifications need browser permission. Sound starts after you enable it.</div></div>
+<div class="grid"><section class="card"><h2>📊 NIFTY LIVE</h2><div class="big" id="nifty">--</div><div class="small" id="feedTime">Waiting for live quote</div><div class="row"><span>Feed</span><span id="feed">--</span></div><div class="row"><span>Completed candle close</span><span id="candleClose">--</span></div><div class="row"><span>Candle time</span><span id="candleTime">--</span></div></section>
+<section class="card"><h2>📉 INDICATORS</h2><div class="row"><span>EMA 9</span><span id="ema9">--</span></div><div class="row"><span>EMA 21</span><span id="ema21">--</span></div><div class="row"><span>RSI 14</span><span id="rsi">--</span></div><div class="row"><span>NIFTY Futures VWAP</span><span id="vwap">--</span></div><div class="row"><span>VWAP volume</span><span id="vwapVol">--</span></div><div class="row"><span>VWAP source</span><span id="vwapSource">--</span></div><div class="row"><span>Strategy signal</span><span id="signal" class="yellow">WAIT</span></div><div class="small" id="reason">--</div></section></div>
+<section class="card"><h2>🧠 STRATEGY CHECKLIST — ప్రతి షరతు స్పష్టంగా</h2><div id="checks" class="check">Waiting for analysis...</div><p class="small">CE: NIFTY completed candle close &gt; EMA9 &gt; EMA21, close &gt; Futures VWAP, RSI 55–70. PE: close &lt; EMA9 &lt; EMA21, close &lt; Futures VWAP, RSI 30–45. RSI 70 లేదా అంతకంటే ఎక్కువైతే CE entry వద్దు. అన్ని షరతులు సరిపోకపోతే WAIT.</p></section>
+<section class="card"><h2>🔎 OPTION SCANNER — ATM చుట్టూ 21 strikes</h2><div class="small" id="optionInfo">Verified signal వచ్చినప్పుడు option chain scan అవుతుంది. WAIT ఉన్నప్పుడు chain request చేయదు.</div><div class="scroll"><table><thead><tr><th>Strike</th><th>CE LTP</th><th>CE Volume</th><th>CE OI</th><th>CE Delta</th><th>PE LTP</th><th>PE Volume</th><th>PE OI</th><th>PE Delta</th><th>PCR</th></tr></thead><tbody id="optionRows"><tr><td colspan="10">No option scan yet</td></tr></tbody></table></div></section>
+<div class="grid"><section class="card"><h2>🤖 VIRTUAL TRADE STATUS</h2><div class="row"><span>Open trades</span><span id="openCount">0</span></div><div class="row"><span>Today's closed P&amp;L</span><span id="todayPnl">--</span></div><div class="row"><span>All-time closed P&amp;L (includes old history)</span><span id="totalPnl">--</span></div><div class="row"><span>Preserved old records</span><span id="legacyCount">--</span></div><div class="small">Entry premium ఆధారంగా SL 10% / Target 20%. Quantity = contract lot size. Stop price hit అయినప్పుడు తదుపరి quote వద్ద exit నమోదు అవుతుంది; gap/slippage వల్ల ఖచ్చితమైన stop price guarantee కాదు.</div></section><section class="card"><h2>🔔 ALERTS</h2><div class="small" id="alerts">No new entry/exit alerts yet. Sound and browser notifications require permission.</div></section></div>
+<section class="card"><h2>📜 TRADE HISTORY — పాత records తొలగించబడవు</h2><div class="scroll"><table><thead><tr><th>Entry time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Target</th><th>SL</th><th>Last/Exit</th><th>P&amp;L</th><th>Status</th><th>Exit reason</th></tr></thead><tbody id="trades"><tr><td colspan="11">Loading...</td></tr></tbody></table></div></section>
+<section class="card"><h2>🖥️ BACKEND ACTIVITY — software ఏం చేస్తోంది?</h2><div id="activity" class="small">Loading activity...</div></section>
+<section class="card"><h2>⚠️ SAFETY</h2><p class="small">ఇది virtual/paper trading మాత్రమే. Real-money order API ఈ codeలో లేదు. Market data, candles, Futures VWAP, option quote, storage ఏదైనా తప్పితే కొత్త trade సృష్టించకుండా WAIT/ERROR చూపిస్తుంది. Historical trade recordsని మార్చదు లేదా తొలగించదు. ఇది investment advice కాదు. Browser మూసివేస్తే browser alerts వినిపించవు; server మాత్రం Railwayలో నడుస్తుంది.</p></section>
+<footer>Bharatham Gopi · NIFTY Virtual Trading · Real orders disabled</footer></main>
+<script>'use strict';const $=id=>document.getElementById(id),fmt=x=>x==null||!Number.isFinite(+x)?'--':(+x).toLocaleString('en-IN',{maximumFractionDigits:2}),money=x=>x==null?'--':'₹'+fmt(x),dt=x=>x?new Date(x).toLocaleString('en-IN'):'--';let known=new Set(),audio=null,enabled=false;
+async function get(p){const r=await fetch(p,{cache:'no-store'});if(!r.ok)throw Error(p+' HTTP '+r.status);return r.json()}function cell(tr,v){const td=document.createElement('td');td.textContent=v==null?'--':String(v);tr.append(td)}function beep(){if(!enabled)return;try{audio=audio||new (window.AudioContext||window.webkitAudioContext)();const o=audio.createOscillator(),g=audio.createGain();o.connect(g);g.connect(audio.destination);o.frequency.value=880;g.gain.value=.08;o.start();o.stop(audio.currentTime+.22)}catch(e){}}
+function notify(title,body){if(enabled&&'Notification'in window&&Notification.permission==='granted')new Notification(title,{body});beep()}
+function renderChecks(a){const root=$('checks');root.replaceChildren();(a.checks||[]).forEach(c=>{const d=document.createElement('div');const s=document.createElement('b');s.textContent=c.status+' · '+c.name+' ';s.className=c.status==='PASS'?'green':c.status==='FAIL'?'red':'yellow';const p=document.createElement('div');p.textContent='Value: '+fmt(c.actual)+' | Rule: '+c.rule+' | '+(c.reason||'');d.append(s,p);root.append(d)})}
+async function refresh(){try{const [h,n,a,s,t,ev,op]=await Promise.all([get('/health'),get('/nifty'),get('/indicators'),get('/demo-status'),get('/demo-trades'),get('/activity'),get('/option-scan')]);$('connection').textContent=h.status+' · '+h.feed;$('session').textContent=(h.marketOpen?'OPEN':'CLOSED')+' / '+(h.entryWindow?'ENTRY ALLOWED':'ENTRY BLOCKED');$('engine').textContent=h.engine;$('storage').textContent=h.storageReady?'READY · Railway volume':'BLOCKED · '+(h.storageError||'');$('lastCycle').textContent=dt(h.lastCycle);$('error').textContent=h.cycleError||'None';$('feed').textContent=n.status;$('nifty').textContent=money(n.quote?.ltp);$('feedTime').textContent='Quote: '+dt(n.quote?.time);$('candleClose').textContent=fmt(a.candleClose);$('candleTime').textContent=dt(a.candleTime);$('ema9').textContent=fmt(a.ema9);$('ema21').textContent=fmt(a.ema21);$('rsi').textContent=fmt(a.rsi);$('vwap').textContent=fmt(a.vwap);$('vwapVol').textContent=fmt(a.vwapVolume);$('vwapSource').textContent=a.vwapSource||'Unavailable';$('signal').textContent=a.signal||'WAIT';$('reason').textContent=a.reason||a.message||'';renderChecks(a);$('openCount').textContent=t.openTrades.length;$('todayPnl').textContent=money(t.todayPnl);$('totalPnl').textContent=money(t.totalPnl);$('legacyCount').textContent=t.legacyCount;
+const tbody=$('trades');tbody.replaceChildren();[...t.trades].reverse().forEach(x=>{const tr=document.createElement('tr');[dt(x.entryTime),x.symbol,x.type,x.quantity,fmt(x.entryPrice),fmt(x.targetPrice),fmt(x.stopPrice),fmt(x.exitPrice??x.lastPrice),money(x.pnl),x.status,x.exitReason].forEach(v=>cell(tr,v));tbody.append(tr)});if(!t.trades.length){const tr=document.createElement('tr');cell(tr,'No trades recorded yet');tbody.append(tr)}
+const orows=$('optionRows');orows.replaceChildren();(op.rows||[]).forEach(x=>{const tr=document.createElement('tr');[x.strike,x.ce?.ltp,x.ce?.volume,x.ce?.oi,x.ce?.delta,x.pe?.ltp,x.pe?.volume,x.pe?.oi,x.pe?.delta,x.pcr].forEach(v=>cell(tr,v));orows.append(tr)});$('optionInfo').textContent=op.rows?.length?'Expiry '+op.expiry+' · '+op.rows.length+' strikes':'Option chain scan pending';
+const act=$('activity');act.replaceChildren();(ev.events||[]).slice(0,35).forEach(x=>{const d=document.createElement('div');d.className='event';const b=document.createElement('b');b.textContent='['+x.type+'] '+dt(x.time)+' ';d.append(b,document.createTextNode(x.message+' '+JSON.stringify(x.detail||{})));act.append(d)});
+const latest=(ev.events||[]).find(x=>['ENTRY','EXIT'].includes(x.type));if(latest&&!known.has(latest.time)){known.add(latest.time);$('alerts').textContent=latest.message+' · '+dt(latest.time);notify(latest.type==='ENTRY'?'Virtual trade entered':'Virtual trade exited',latest.message)}
+}catch(e){$('connection').textContent='Refresh error: '+e.message}}
+$('refresh').onclick=refresh;$('notify').onclick=async()=>{enabled=true;if('Notification'in window){const p=await Notification.requestPermission();$('notifyState').textContent='Notification permission: '+p;}else $('notifyState').textContent='Browser notifications not supported; sound enabled where available.';beep()};refresh();setInterval(refresh,10000);
+</script></body></html>
