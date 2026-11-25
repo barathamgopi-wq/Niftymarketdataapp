@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -188,11 +189,10 @@ async function fetchJSON(path){
   return await response.json();
 }
 
-/* NIFTY: reads the actual nested Upstox response */
+/* NIFTY LIVE PRICE */
 async function loadNifty(){
   try{
     const d=await fetchJSON("/nifty");
-
     const feeds=d?.data?.feeds || {};
     const instrument=feeds["NSE_INDEX|Nifty 50"];
     const quote=instrument?.ltpc;
@@ -215,8 +215,7 @@ async function loadNifty(){
       const percent=(change/previous)*100;
       const sign=change>=0?"+":"";
 
-      setText(
-        "priceChange",
+      setText("priceChange",
         sign+fmtNum(change)+" ("+sign+percent.toFixed(2)+"%) vs previous close"
       );
       colorByNumber($("priceChange"),change);
@@ -239,7 +238,7 @@ async function loadNifty(){
   }
 }
 
-/* Indicators: server returns ema9, ema21, vwap, rsi14 */
+/* TECHNICAL INDICATORS */
 async function loadIndicators(){
   try{
     const d=await fetchJSON("/indicators");
@@ -247,14 +246,16 @@ async function loadIndicators(){
     setText("ema9",fmtNum(d.ema9));
     setText("ema21",fmtNum(d.ema21));
     setText("vwap",fmtNum(d.vwap));
-    setText("rsi",fmtNum(d.rsi14));
+
+    // FIX: server.js returns rsi, not rsi14
+    setText("rsi",fmtNum(d.rsi));
+
     setText("signal",d.signal || d.status || "--");
 
     if(d.status==="waiting"){
       setText("indicatorInfo",d.message || "Waiting for candles");
     }else{
-      setText(
-        "indicatorInfo",
+      setText("indicatorInfo",
         "Completed 5-minute candles: "+(d.completedCandles ?? "--")
       );
     }
@@ -265,7 +266,7 @@ async function loadIndicators(){
   }
 }
 
-/* Health endpoint */
+/* HEALTH STATUS */
 async function loadHealth(){
   try{
     const d=await fetchJSON("/health");
@@ -274,10 +275,7 @@ async function loadHealth(){
     setText("feedStatus",d.feed || "--");
     setText("autoStatus",d.status || "--");
 
-    setText(
-      "cycleInfo",
-      "Last cycle: "+(d.lastCycleTime || "--")
-    );
+    setText("cycleInfo","Last cycle: "+(d.lastCycleTime || "--"));
 
     if(d.cycleError){
       setText("riskStatus","Cycle error: "+d.cycleError);
@@ -295,7 +293,7 @@ async function loadHealth(){
   }
 }
 
-/* Demo status: openTrades is an array in server.js */
+/* DEMO STATUS */
 async function loadDemo(){
   try{
     const d=await fetchJSON("/demo-status");
@@ -303,8 +301,7 @@ async function loadDemo(){
 
     if(open.length){
       const t=open[0];
-      setText(
-        "openTrade",
+      setText("openTrade",
         t.symbol+" / "+t.type+" @ "+fmtNum(t.entryPrice)
       );
     }else{
@@ -327,7 +324,7 @@ async function loadDemo(){
   }
 }
 
-/* Trade history: server returns {trades, openTrades, closedTrades, totalPnl} */
+/* TRADE HISTORY */
 function renderTrades(data){
   const list=Array.isArray(data.trades)?data.trades:[];
   const body=$("tradeHistory");
@@ -377,7 +374,7 @@ async function loadTrades(){
   }
 }
 
-/* Practice premium calculator */
+/* OPTION PREMIUM CALCULATOR */
 function calculate(){
   const buy=Number($("buyPrice").value);
   const qty=Number($("quantity").value);
@@ -428,5 +425,4 @@ refreshAll();
 setInterval(refreshAll,10000);
 </script>
 </body>
- </html>
- 
+</html>
