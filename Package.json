@@ -1,6 +1,6 @@
 {
   "name": "nifty-live-market",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "NIFTY Live Market and Virtual Demo Trading",
   "main": "Server.js",
   "scripts": {
@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "ws": "^8.18.0",
     "upstox-js-sdk": "^2.32.0"
   }
 }
