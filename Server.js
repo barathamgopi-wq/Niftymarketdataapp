@@ -13,55 +13,89 @@ app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
 
+// SETTINGS
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.UPSTOX_ACCESS_TOKEN;
 const UNDERLYING = "NSE_INDEX|Nifty 50";
+
 const TARGET_PERCENT = 20;
 const STOP_PERCENT = 10;
 const POLL_MS = 10000;
 
 const STORAGE_DIR = process.env.DATA_DIR || "/data";
 const STORAGE_FILE = path.join(STORAGE_DIR, "demo-trades.json");
-const DASHBOARD_FILE = path.join(__dirname, "NIFTY_Demo_Live_Price_Ready-2.html");
+const DASHBOARD_FILE = path.join(
+  __dirname,
+  "NIFTY_Demo_Live_Price_Ready-2.html"
+);
 
+// LIVE STATUS
 let latestNiftyData = null;
 let feedStatus = "Disconnected";
 let lastUpdateTime = null;
+
 let indicatorsCache = null;
 let lastCycleTime = null;
 let cycleStatus = "Starting";
 let cycleError = null;
 let busy = false;
 
+let streamer = null;
+
+// LOAD TRADE HISTORY
 function loadTrades() {
   try {
     fs.mkdirSync(STORAGE_DIR, { recursive: true });
-    if (!fs.existsSync(STORAGE_FILE)) return [];
-    const data = JSON.parse(fs.readFileSync(STORAGE_FILE, "utf8"));
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    console.error("Trade history load error:", e.message);
+
+    if (!fs.existsSync(STORAGE_FILE)) {
+      return [];
+    }
+
+    const data = JSON.parse(
+      fs.readFileSync(STORAGE_FILE, "utf8")
+    );
+
+    if (!Array.isArray(data)) {
+      throw new Error("Trade history format is invalid");
+    }
+
+    return data;
+  } catch (error) {
+    console.error("Trade history load error:", error.message);
     return [];
   }
 }
 
 let trades = loadTrades();
 
+// SAVE TRADE HISTORY
 function saveTrades() {
   fs.mkdirSync(STORAGE_DIR, { recursive: true });
-  const temp = STORAGE_FILE + ".tmp";
-  fs.writeFileSync(temp, JSON.stringify(trades, null, 2));
-  fs.renameSync(temp, STORAGE_FILE);
+
+  const tempFile = STORAGE_FILE + ".tmp";
+
+  fs.writeFileSync(
+    tempFile,
+    JSON.stringify(trades, null, 2),
+    "utf8"
+  );
+
+  fs.renameSync(tempFile, STORAGE_FILE);
 }
 
+// UPSTOX API REQUEST
 async function apiGet(url) {
-  if (!TOKEN) throw new Error("UPSTOX_ACCESS_TOKEN is missing");
+  if (!TOKEN) {
+    throw new Error("UPSTOX_ACCESS_TOKEN is missing");
+  }
 
   const response = await fetch(url, {
+    method: "GET",
     headers: {
       Authorization: "Bearer " + TOKEN,
       Accept: "application/json"
@@ -69,47 +103,86 @@ async function apiGet(url) {
     signal: AbortSignal.timeout(15000)
   });
 
-  const body = await response.json();
+  let body;
+
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("Invalid response received from Upstox");
+  }
 
   if (!response.ok || body.status === "error") {
-    throw new Error("Upstox API error: " + response.status);
+    throw new Error(
+      "Upstox API error: HTTP " + response.status
+    );
   }
+
   return body;
 }
 
+// EMA
 function ema(values, period) {
-  if (values.length < period) return null;
-  const k = 2 / (period + 1);
-  let value = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < values.length; i++) {
-    value = values[i] * k + value * (1 - k);
+  if (!Array.isArray(values) || values.length < period) {
+    return null;
   }
+
+  const multiplier = 2 / (period + 1);
+
+  let value =
+    values.slice(0, period).reduce((a, b) => a + b, 0) /
+    period;
+
+  for (let i = period; i < values.length; i++) {
+    value =
+      values[i] * multiplier +
+      value * (1 - multiplier);
+  }
+
   return value;
 }
 
+// RSI
 function rsi(values, period = 14) {
-  if (values.length <= period) return null;
-  let gain = 0, loss = 0;
+  if (!Array.isArray(values) || values.length <= period) {
+    return null;
+  }
+
+  let gain = 0;
+  let loss = 0;
 
   for (let i = 1; i <= period; i++) {
     const change = values[i] - values[i - 1];
-    if (change > 0) gain += change;
-    else loss -= change;
+
+    if (change > 0) {
+      gain += change;
+    } else {
+      loss -= change;
+    }
   }
 
-  let avgGain = gain / period;
-  let avgLoss = loss / period;
+  let averageGain = gain / period;
+  let averageLoss = loss / period;
 
   for (let i = period + 1; i < values.length; i++) {
     const change = values[i] - values[i - 1];
-    avgGain = (avgGain * (period - 1) + Math.max(change, 0)) / period;
-    avgLoss = (avgLoss * (period - 1) + Math.max(-change, 0)) / period;
+
+    averageGain =
+      (averageGain * (period - 1) + Math.max(change, 0)) /
+      period;
+
+    averageLoss =
+      (averageLoss * (period - 1) + Math.max(-change, 0)) /
+      period;
   }
 
-  if (avgLoss === 0) return 100;
-  return 100 - 100 / (1 + avgGain / avgLoss);
+  if (averageLoss === 0) return 100;
+
+  const rs = averageGain / averageLoss;
+
+  return 100 - 100 / (1 + rs);
 }
 
+// INDIA DATE
 function istDateOffset(daysAgo = 0) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata",
@@ -118,22 +191,75 @@ function istDateOffset(daysAgo = 0) {
     day: "2-digit"
   }).formatToParts(new Date());
 
-  const get = type => parts.find(p => p.type === type)?.value;
-  const today = new Date(`${get("year")}-${get("month")}-${get("day")}T00:00:00Z`);
-  today.setUTCDate(today.getUTCDate() - daysAgo);
-  return today.toISOString().slice(0, 10);
+  const get = type =>
+    parts.find(part => part.type === type)?.value;
+
+  const date = new Date(
+    `${get("year")}-${get("month")}-${get("day")}T00:00:00Z`
+  );
+
+  date.setUTCDate(date.getUTCDate() - daysAgo);
+
+  return date.toISOString().slice(0, 10);
 }
 
-// NIFTY Futures VWAP helper
+// MARKET TIME
+function marketTime() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "short",
+    hourCycle: "h23"
+  }).formatToParts(new Date());
+
+  const get = type =>
+    parts.find(part => part.type === type)?.value;
+
+  return {
+    day: get("weekday"),
+    hour: Number(get("hour")),
+    minute: Number(get("minute"))
+  };
+}
+
+function marketOpen() {
+  const time = marketTime();
+  const minutes = time.hour * 60 + time.minute;
+
+  return (
+    !["Sat", "Sun"].includes(time.day) &&
+    minutes >= 555 &&
+    minutes <= 930
+  );
+}
+
+// ENTRY WINDOW
+function entryAllowed() {
+  const time = marketTime();
+  const minutes = time.hour * 60 + time.minute;
+
+  return (
+    !["Sat", "Sun"].includes(time.day) &&
+    minutes >= 555 &&
+    minutes <= 915
+  );
+}
+
+// FUTURES VWAP CACHE
 let cachedNiftyFuture = null;
 let cachedNiftyFutureDate = null;
 let futuresVwapCache = null;
 let futuresVwapCacheAt = 0;
 
+// FIND NIFTY FUTURES CONTRACT
 async function getNiftyFutureKey() {
   const today = istDateOffset(0);
 
-  if (cachedNiftyFuture && cachedNiftyFutureDate === today) {
+  if (
+    cachedNiftyFuture &&
+    cachedNiftyFutureDate === today
+  ) {
     return cachedNiftyFuture;
   }
 
@@ -142,13 +268,15 @@ async function getNiftyFutureKey() {
   );
 
   const contracts = (payload.data || [])
-    .filter(x =>
-      x.instrument_type === "FUT" &&
-      x.underlying_symbol === "NIFTY" &&
-      x.expiry >= today &&
-      x.instrument_key
+    .filter(item =>
+      item.instrument_type === "FUT" &&
+      item.underlying_symbol === "NIFTY" &&
+      item.expiry >= today &&
+      item.instrument_key
     )
-    .sort((a, b) => a.expiry.localeCompare(b.expiry));
+    .sort((a, b) =>
+      a.expiry.localeCompare(b.expiry)
+    );
 
   if (!contracts.length) {
     throw new Error("Active NIFTY futures contract not found");
@@ -156,26 +284,37 @@ async function getNiftyFutureKey() {
 
   cachedNiftyFuture = contracts[0].instrument_key;
   cachedNiftyFutureDate = today;
+
   return cachedNiftyFuture;
 }
 
+// FUTURES VWAP
 async function getFuturesVwap() {
-  if (futuresVwapCache && Date.now() - futuresVwapCacheAt < 30000) {
+  if (
+    futuresVwapCache &&
+    Date.now() - futuresVwapCacheAt < 30000
+  ) {
     return futuresVwapCache;
   }
 
   const key = await getNiftyFutureKey();
+
   const today = istDateOffset(0);
-  const fromDate = istDateOffset(7);
   const yesterday = istDateOffset(1);
+  const fromDate = istDateOffset(7);
 
   const historicalUrl =
     "https://api.upstox.com/v3/historical-candle/" +
-    encodeURIComponent(key) + "/minutes/5/" + yesterday + "/" + fromDate;
+    encodeURIComponent(key) +
+    "/minutes/5/" +
+    yesterday +
+    "/" +
+    fromDate;
 
   const intradayUrl =
     "https://api.upstox.com/v3/historical-candle/intraday/" +
-    encodeURIComponent(key) + "/minutes/5";
+    encodeURIComponent(key) +
+    "/minutes/5";
 
   const [historical, intraday] = await Promise.all([
     apiGet(historicalUrl),
@@ -187,17 +326,22 @@ async function getFuturesVwap() {
     ...(intraday?.data?.candles || [])
   ];
 
-  const todayStart = new Date(today + "T00:00:00+05:30").getTime();
-  const now = Date.now();
-  let sumPriceVolume = 0;
-  let sumVolume = 0;
+  const todayStart = new Date(
+    today + "T00:00:00+05:30"
+  ).getTime();
 
-  for (const c of candles) {
-    const timestamp = new Date(c[0]).getTime();
-    const high = Number(c[2]);
-    const low = Number(c[3]);
-    const close = Number(c[4]);
-    const volume = Number(c[5] || 0);
+  const now = Date.now();
+
+  let priceVolume = 0;
+  let totalVolume = 0;
+
+  for (const candle of candles) {
+    const timestamp = new Date(candle[0]).getTime();
+
+    const high = Number(candle[2]);
+    const low = Number(candle[3]);
+    const close = Number(candle[4]);
+    const volume = Number(candle[5] || 0);
 
     if (
       timestamp >= todayStart &&
@@ -207,117 +351,140 @@ async function getFuturesVwap() {
       Number.isFinite(close) &&
       volume > 0
     ) {
-      sumPriceVolume += ((high + low + close) / 3) * volume;
-      sumVolume += volume;
+      const typicalPrice = (high + low + close) / 3;
+
+      priceVolume += typicalPrice * volume;
+      totalVolume += volume;
     }
   }
 
-  futuresVwapCache = sumVolume > 0
-    ? { value: sumPriceVolume / sumVolume, source: "NIFTY Futures" }
-    : null;
+  futuresVwapCache =
+    totalVolume > 0
+      ? {
+          value: priceVolume / totalVolume,
+          source: "NIFTY Futures"
+        }
+      : null;
 
   futuresVwapCacheAt = Date.now();
+
   return futuresVwapCache;
 }
 
-// Indicators
+// NIFTY INDICATORS
 async function getIndicators() {
-  const today = istDateOffset(0);
   const yesterday = istDateOffset(1);
   const fromDate = istDateOffset(7);
 
   const historicalUrl =
     "https://api.upstox.com/v3/historical-candle/" +
-    encodeURIComponent(UNDERLYING) + "/minutes/5/" + yesterday + "/" + fromDate;
+    encodeURIComponent(UNDERLYING) +
+    "/minutes/5/" +
+    yesterday +
+    "/" +
+    fromDate;
 
   const intradayUrl =
     "https://api.upstox.com/v3/historical-candle/intraday/" +
-    encodeURIComponent(UNDERLYING) + "/minutes/5";
+    encodeURIComponent(UNDERLYING) +
+    "/minutes/5";
 
-  const [historicalPayload, intradayPayload] = await Promise.all([
-    apiGet(historicalUrl),
-    apiGet(intradayUrl)
-  ]);
+  const [historicalPayload, intradayPayload] =
+    await Promise.all([
+      apiGet(historicalUrl),
+      apiGet(intradayUrl)
+    ]);
 
-  const historicalRaw = historicalPayload?.data?.candles || [];
-  const intradayRaw = intradayPayload?.data?.candles || [];
+  const historical =
+    historicalPayload?.data?.candles || [];
 
-  if (!Array.isArray(historicalRaw) || !Array.isArray(intradayRaw)) {
-    throw new Error("Candle data unavailable");
-  }
+  const intraday =
+    intradayPayload?.data?.candles || [];
 
   const now = Date.now();
   const candleMap = new Map();
 
-  for (const c of [...historicalRaw, ...intradayRaw]) {
-    const time = new Date(c[0]).getTime();
-    const candle = {
-      time,
-      high: Number(c[2]),
-      low: Number(c[3]),
-      close: Number(c[4]),
-      volume: Number(c[5] || 0)
+  for (const candle of [...historical, ...intraday]) {
+    const timestamp = new Date(candle[0]).getTime();
+
+    const item = {
+      time: timestamp,
+      high: Number(candle[2]),
+      low: Number(candle[3]),
+      close: Number(candle[4]),
+      volume: Number(candle[5] || 0)
     };
 
     if (
-      Number.isFinite(candle.time) &&
-      Number.isFinite(candle.high) &&
-      Number.isFinite(candle.low) &&
-      Number.isFinite(candle.close) &&
-      candle.time + 300000 <= now
+      Number.isFinite(item.time) &&
+      Number.isFinite(item.high) &&
+      Number.isFinite(item.low) &&
+      Number.isFinite(item.close) &&
+      item.time + 300000 <= now
     ) {
-      candleMap.set(candle.time, candle);
+      candleMap.set(item.time, item);
     }
   }
 
-  const candles = [...candleMap.values()].sort((a, b) => a.time - b.time);
+  const candles = [...candleMap.values()]
+    .sort((a, b) => a.time - b.time);
 
   if (candles.length < 22) {
     return {
       status: "waiting",
+      signal: "WAIT",
       message: "Need at least 22 completed 5-minute candles",
       completedCandles: candles.length
     };
   }
 
-  const closes = candles.map(c => c.close);
-  const e9 = ema(closes, 9);
-  const e21 = ema(closes, 21);
-  const r = rsi(closes, 14);
+  const closes = candles.map(item => item.close);
 
-  if (e9 === null || e21 === null || r === null) {
+  const ema9 = ema(closes, 9);
+  const ema21 = ema(closes, 21);
+  const rsiValue = rsi(closes, 14);
+
+  if (
+    ema9 === null ||
+    ema21 === null ||
+    rsiValue === null
+  ) {
     return {
       status: "waiting",
-      message: "Indicator calculation waiting",
-      completedCandles: candles.length
+      signal: "WAIT",
+      message: "Indicator calculation waiting"
     };
   }
 
   let vwapData = null;
+
   try {
     vwapData = await getFuturesVwap();
   } catch (error) {
-    console.error("Futures VWAP unavailable:", error.message);
+    console.error("VWAP error:", error.message);
   }
 
   const vwap = vwapData?.value ?? null;
   const latest = candles[candles.length - 1];
+
   let signal = "WAIT";
 
   if (
     vwap !== null &&
-    latest.close > e9 &&
-    e9 > e21 &&
+    latest.close > ema9 &&
+    ema9 > ema21 &&
     latest.close > vwap &&
-    r >= 55 && r <= 70
+    rsiValue >= 55 &&
+    rsiValue <= 70
   ) {
     signal = "CE";
   } else if (
     vwap !== null &&
-    latest.close < e9 &&
-    e9 < e21 &&
+    latest.close < ema9 &&
+    ema9 < ema21 &&
     latest.close < vwap &&
-    r >= 30 && r <= 45
+    rsiValue >= 30 &&
+    rsiValue <= 45
   ) {
     signal = "PE";
   }
@@ -326,9 +493,9 @@ async function getIndicators() {
     status: "ok",
     signal,
     nifty: latest.close,
-    ema9: e9,
-    ema21: e21,
-    rsi: r,
+    ema9,
+    ema21,
+    rsi: rsiValue,
     vwap,
     vwapSource: vwapData?.source || null,
     completedCandles: candles.length,
@@ -336,25 +503,7 @@ async function getIndicators() {
   };
 }
 
-// Market hours
-function marketOpen() {
-  const now = new Date();
-
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
-    weekday: "short",
-    hourCycle: "h23"
-  }).formatToParts(now);
-
-  const get = type => parts.find(p => p.type === type)?.value;
-  const day = get("weekday");
-  const minutes = Number(get("hour")) * 60 + Number(get("minute"));
-
-  return !["Sat", "Sun"].includes(day) && minutes >= 555 && minutes <= 930;
-}
-
+// NEAREST EXPIRY
 async function getNearestExpiry() {
   const payload = await apiGet(
     "https://api.upstox.com/v2/option/contract?instrument_key=" +
@@ -364,52 +513,86 @@ async function getNearestExpiry() {
   const contracts = payload.data || [];
   const today = istDateOffset(0);
 
-  const expiries = [...new Set(
-    contracts.map(c => c.expiry).filter(d => d >= today)
-  )].sort();
+  const expiries = [
+    ...new Set(
+      contracts
+        .map(item => item.expiry)
+        .filter(date => date >= today)
+    )
+  ].sort();
 
-  if (!expiries.length) throw new Error("No active NIFTY expiry found");
+  if (!expiries.length) {
+    throw new Error("No active NIFTY expiry found");
+  }
 
   return {
     expiry: expiries[0],
-    contracts: contracts.filter(c => c.expiry === expiries[0])
+    contracts: contracts.filter(
+      item => item.expiry === expiries[0]
+    )
   };
 }
 
+// ATM OPTIONS
 async function getAtmOptions() {
   const indicators = await getIndicators();
-  if (indicators.status !== "ok") throw new Error(indicators.message);
+
+  if (indicators.status !== "ok") {
+    throw new Error(indicators.message);
+  }
 
   const expiryData = await getNearestExpiry();
 
   const chainPayload = await apiGet(
     "https://api.upstox.com/v2/option/chain?instrument_key=" +
     encodeURIComponent(UNDERLYING) +
-    "&expiry_date=" + encodeURIComponent(expiryData.expiry)
+    "&expiry_date=" +
+    encodeURIComponent(expiryData.expiry)
   );
 
   const rows = chainPayload.data || [];
-  if (!rows.length) throw new Error("Option chain unavailable");
 
-  const spot = Number(rows[0].underlying_spot_price || indicators.nifty);
-  if (!Number.isFinite(spot)) throw new Error("NIFTY spot price unavailable");
+  if (!rows.length) {
+    throw new Error("Option chain unavailable");
+  }
 
-  const atm = rows.reduce((best, row) =>
-    Math.abs(Number(row.strike_price) - spot) <
-    Math.abs(Number(best.strike_price) - spot) ? row : best
+  const spot = Number(
+    rows[0].underlying_spot_price || indicators.nifty
   );
 
+  if (!Number.isFinite(spot)) {
+    throw new Error("NIFTY spot price unavailable");
+  }
+
+  const atm = rows.reduce((best, row) => {
+    return (
+      Math.abs(Number(row.strike_price) - spot) <
+      Math.abs(Number(best.strike_price) - spot)
+    ) ? row : best;
+  });
+
   function makeOption(type) {
-    const side = type === "CE" ? atm.call_options : atm.put_options;
+    const side =
+      type === "CE"
+        ? atm.call_options
+        : atm.put_options;
+
     if (!side?.instrument_key) return null;
 
     const contract = expiryData.contracts.find(
-      c => c.instrument_key === side.instrument_key
+      item =>
+        item.instrument_key === side.instrument_key
     );
 
     const ltp = Number(side.market_data?.ltp);
 
-    if (!contract || !Number.isFinite(ltp) || ltp <= 0) return null;
+    if (
+      !contract ||
+      !Number.isFinite(ltp) ||
+      ltp <= 0
+    ) {
+      return null;
+    }
 
     return {
       type,
@@ -430,23 +613,49 @@ async function getAtmOptions() {
   };
 }
 
-// Open demo trade only
+// OPEN VIRTUAL TRADE
 function openTrade(option) {
+  if (!option || !option.instrumentKey) return;
+
+  const alreadyOpen = trades.some(
+    trade => trade.status === "OPEN"
+  );
+
+  if (alreadyOpen) return;
+
   const trade = {
     id: Date.now().toString(),
     status: "OPEN",
+
     type: option.type,
     symbol: option.symbol,
     instrumentKey: option.instrumentKey,
+
     expiry: option.expiry,
     strike: option.strike,
+
     lotSize: option.lotSize,
     quantity: option.lotSize,
+
     entryPrice: option.ltp,
-    targetPrice: Number((option.ltp * (1 + TARGET_PERCENT / 100)).toFixed(2)),
-    stopPrice: Number((option.ltp * (1 - STOP_PERCENT / 100)).toFixed(2)),
+
+    targetPrice: Number(
+      (
+        option.ltp *
+        (1 + TARGET_PERCENT / 100)
+      ).toFixed(2)
+    ),
+
+    stopPrice: Number(
+      (
+        option.ltp *
+        (1 - STOP_PERCENT / 100)
+      ).toFixed(2)
+    ),
+
     exitPrice: null,
     pnl: 0,
+
     entryTime: new Date().toISOString(),
     exitTime: null,
     exitReason: null
@@ -455,39 +664,69 @@ function openTrade(option) {
   trades.push(trade);
   saveTrades();
 
-  console.log("DEMO ENTRY:", trade.symbol, trade.entryPrice);
+  console.log(
+    "VIRTUAL DEMO ENTRY:",
+    trade.symbol,
+    trade.entryPrice
+  );
 }
 
+// EXIT VIRTUAL TRADE
 function checkExit(option) {
-  const trade = trades.find(t =>
-    t.status === "OPEN" && t.instrumentKey === option.instrumentKey
+  const trade = trades.find(item =>
+    item.status === "OPEN" &&
+    item.instrumentKey === option.instrumentKey
   );
+
   if (!trade) return;
 
-  const ltp = option.ltp;
+  const ltp = Number(option.ltp);
+
+  if (!Number.isFinite(ltp) || ltp <= 0) return;
+
   let reason = null;
 
-  if (ltp >= trade.targetPrice) reason = "TARGET";
-  else if (ltp <= trade.stopPrice) reason = "STOP LOSS";
+  if (ltp >= trade.targetPrice) {
+    reason = "TARGET";
+  } else if (ltp <= trade.stopPrice) {
+    reason = "STOP LOSS";
+  }
+
   if (!reason) return;
 
   trade.status = "CLOSED";
   trade.exitPrice = ltp;
   trade.exitTime = new Date().toISOString();
   trade.exitReason = reason;
-  trade.pnl = Number(((ltp - trade.entryPrice) * trade.quantity).toFixed(2));
+
+  trade.pnl = Number(
+    (
+      (ltp - trade.entryPrice) *
+      trade.quantity
+    ).toFixed(2)
+  );
 
   saveTrades();
-  console.log("DEMO EXIT:", reason, "P/L:", trade.pnl);
+
+  console.log(
+    "VIRTUAL DEMO EXIT:",
+    reason,
+    "P/L:",
+    trade.pnl
+  );
 }
 
+// DEMO TRADING CYCLE
 async function tradingCycle() {
   if (busy) return;
+
   busy = true;
   lastCycleTime = new Date().toISOString();
 
   try {
-    if (!TOKEN) throw new Error("Upstox token missing");
+    if (!TOKEN) {
+      throw new Error("Upstox token missing");
+    }
 
     if (!marketOpen()) {
       cycleStatus = "Market closed";
@@ -496,68 +735,106 @@ async function tradingCycle() {
     }
 
     const data = await getAtmOptions();
+
     indicatorsCache = data.indicators;
 
-    const openTradeNow = trades.find(t => t.status === "OPEN");
+    const openTradeNow = trades.find(
+      trade => trade.status === "OPEN"
+    );
 
     if (openTradeNow) {
-      const option = openTradeNow.type === "CE" ? data.ce : data.pe;
+      const currentOption =
+        openTradeNow.type === "CE"
+          ? data.ce
+          : data.pe;
 
-      if (option && option.instrumentKey === openTradeNow.instrumentKey) {
-        checkExit(option);
+      if (
+        currentOption &&
+        currentOption.instrumentKey ===
+          openTradeNow.instrumentKey
+      ) {
+        checkExit(currentOption);
       } else {
         const payload = await apiGet(
           "https://api.upstox.com/v2/option/chain?instrument_key=" +
           encodeURIComponent(UNDERLYING) +
-          "&expiry_date=" + encodeURIComponent(openTradeNow.expiry)
+          "&expiry_date=" +
+          encodeURIComponent(openTradeNow.expiry)
         );
 
         const row = (payload.data || []).find(
-          x => Number(x.strike_price) === openTradeNow.strike
+          item =>
+            Number(item.strike_price) ===
+            openTradeNow.strike
         );
 
-        const side = openTradeNow.type === "CE"
-          ? row?.call_options
-          : row?.put_options;
+        const side =
+          openTradeNow.type === "CE"
+            ? row?.call_options
+            : row?.put_options;
 
         const ltp = Number(side?.market_data?.ltp);
 
-        if (Number.isFinite(ltp) && ltp > 0) {
-          checkExit({ instrumentKey: openTradeNow.instrumentKey, ltp });
+        if (
+          Number.isFinite(ltp) &&
+          ltp > 0
+        ) {
+          checkExit({
+            instrumentKey: openTradeNow.instrumentKey,
+            ltp
+          });
         }
       }
-    } else if (data.indicators.signal === "CE" && data.ce) {
-      openTrade(data.ce);
-    } else if (data.indicators.signal === "PE" && data.pe) {
-      openTrade(data.pe);
+    } else if (entryAllowed()) {
+      if (
+        data.indicators.signal === "CE" &&
+        data.ce
+      ) {
+        openTrade(data.ce);
+      } else if (
+        data.indicators.signal === "PE" &&
+        data.pe
+      ) {
+        openTrade(data.pe);
+      }
     }
 
     cycleStatus = "Running";
     cycleError = null;
+
   } catch (error) {
     cycleStatus = "Error";
     cycleError = error.message;
-    console.error("Demo trading cycle:", error.message);
+
+    console.error(
+      "Demo trading cycle error:",
+      error.message
+    );
+
   } finally {
     busy = false;
   }
 }
 
-// Dashboard
+// DASHBOARD
 app.get("/", (req, res) => {
   res.sendFile(DASHBOARD_FILE, error => {
     if (error) {
-      console.error("Dashboard file error:", error.message);
+      console.error(
+        "Dashboard file error:",
+        error.message
+      );
+
       if (!res.headersSent) {
         res.status(500).send(
-          "Dashboard HTML file not found. Check that the HTML file is in the project root."
+          "Dashboard HTML file not found. Check the project root."
         );
       }
     }
   });
 });
 
-// Backend status
+// STATUS
 app.get("/status", (req, res) => {
   res.json({
     app: "NIFTY Live Demo Trading Backend",
@@ -568,6 +845,7 @@ app.get("/status", (req, res) => {
   });
 });
 
+// HEALTH
 app.get("/health", (req, res) => {
   res.json({
     status: "OK",
@@ -579,6 +857,7 @@ app.get("/health", (req, res) => {
   });
 });
 
+// CONFIG
 app.get("/config", (req, res) => {
   res.json({
     tokenConfigured: Boolean(TOKEN),
@@ -590,7 +869,7 @@ app.get("/config", (req, res) => {
   });
 });
 
-// NIFTY live endpoint
+// NIFTY LIVE DATA
 app.get("/nifty", (req, res) => {
   res.json({
     status: feedStatus,
@@ -599,7 +878,7 @@ app.get("/nifty", (req, res) => {
   });
 });
 
-// Indicators endpoint
+// INDICATORS
 app.get("/indicators", async (req, res) => {
   try {
     const data = await getIndicators();
@@ -607,85 +886,97 @@ app.get("/indicators", async (req, res) => {
   } catch (error) {
     res.status(502).json({
       status: "waiting",
+      signal: "WAIT",
       message: error.message
     });
   }
 });
 
-// Demo trade history
+// TRADE HISTORY
 app.get("/demo-trades", (req, res) => {
+  const closedTrades = trades.filter(
+    trade => trade.status === "CLOSED"
+  );
+
+  const openTrades = trades.filter(
+    trade => trade.status === "OPEN"
+  );
+
+  const totalPnl = closedTrades.reduce(
+    (sum, trade) => sum + Number(trade.pnl || 0),
+    0
+  );
+
   res.json({
     trades,
-    openTrades: trades.filter(t => t.status === "OPEN"),
-    closedTrades: trades.filter(t => t.status === "CLOSED"),
-    totalPnl: Number(
-      trades
-        .filter(t => t.status === "CLOSED")
-        .reduce((sum, t) => sum + t.pnl, 0)
-        .toFixed(2)
-    )
+    openTrades,
+    closedTrades,
+    totalPnl: Number(totalPnl.toFixed(2)),
+    totalTrades: trades.length
   });
 });
 
-// Demo status
+// DEMO STATUS
 app.get("/demo-status", (req, res) => {
   res.json({
     status: cycleStatus,
     lastCycleTime,
     cycleError,
     indicators: indicatorsCache,
-    openTrades: trades.filter(t => t.status === "OPEN")
+    openTrades: trades.filter(
+      trade => trade.status === "OPEN"
+    ),
+    realOrders: false
   });
 });
 
-// Start server
+// SERVER START
 app.listen(PORT, () => {
-  console.log("NIFTY Demo backend running on port " + PORT);
+  console.log(
+    "NIFTY Demo backend running on port " + PORT
+  );
 
   if (!TOKEN) {
     feedStatus = "Error";
-    console.error("UPSTOX_ACCESS_TOKEN is missing");
+    cycleStatus = "Error";
+
+    console.error(
+      "UPSTOX_ACCESS_TOKEN is missing"
+    );
+
     return;
   }
 
-  Upstox.ApiClient.instance.authentications["OAUTH2"].accessToken = TOKEN;
+  try {
+    Upstox.ApiClient.instance
+      .authentications["OAUTH2"].accessToken = TOKEN;
 
-  const streamer = new Upstox.MarketDataStreamerV3();
-  streamer.autoReconnect(true, 10, 3);
+    streamer = new Upstox.MarketDataStreamerV3();
 
-  streamer.on("open", () => {
-    feedStatus = "Connected";
-    try {
-      streamer.subscribe([UNDERLYING], "ltpc");
-    } catch (error) {
-      console.error("NIFTY subscription error:", error.message);
-    }
-  });
+    streamer.autoReconnect(true, 10, 3);
 
-  streamer.on("message", data => {
-    try {
-      const message = Buffer.isBuffer(data) ? data.toString("utf8") : data;
-      latestNiftyData = typeof message === "string" ? JSON.parse(message) : message;
-      lastUpdateTime = new Date().toISOString();
-    } catch (error) {
-      console.error("Market data parse error:", error.message);
-    }
-  });
+    streamer.on("open", () => {
+      feedStatus = "Connected";
 
-  streamer.on("reconnecting", () => {
-    feedStatus = "Reconnecting";
-  });
+      console.log("Upstox WebSocket connected");
 
-  streamer.on("error", error => {
-    feedStatus = "Error";
-    console.error("Upstox feed error:", error.message || error);
-  });
+      try {
+        streamer.subscribe(
+          [UNDERLYING],
+          "ltpc"
+        );
+      } catch (error) {
+        console.error(
+          "NIFTY subscription error:",
+          error.message
+        );
+      }
+    });
 
-  streamer.on("close", () => {
-    feedStatus = "Disconnected";
-  });
+    streamer.on("message", data => {
+      try {
+        let message = data;
 
-  streamer.connect();
-  tradingCycle();
-  setInterval(tradingCycle, POLL_MS);
-});
+        if (Buffer.isBuffer(data)) {
+          message = data.toString("utf8");
+       
