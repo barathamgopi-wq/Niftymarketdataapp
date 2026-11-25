@@ -13,7 +13,6 @@ app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -22,14 +21,11 @@ app.use((req, res, next) => {
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.UPSTOX_ACCESS_TOKEN;
 const UNDERLYING = "NSE_INDEX|Nifty 50";
-
 const TARGET_PERCENT = 20;
 const STOP_PERCENT = 10;
 const POLL_MS = 10000;
-
 const STORAGE_DIR = process.env.DATA_DIR || "/data";
 const STORAGE_FILE = path.join(STORAGE_DIR, "demo-trades.json");
-
 const DASHBOARD_FILE = path.join(
   __dirname,
   "NIFTY_Demo_Live_Price_Ready-2.html"
@@ -50,7 +46,6 @@ let streamer = null;
 function loadTrades() {
   try {
     fs.mkdirSync(STORAGE_DIR, { recursive: true });
-
     if (!fs.existsSync(STORAGE_FILE)) return [];
 
     const data = JSON.parse(
@@ -97,9 +92,7 @@ async function apiGet(url) {
   const body = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      "Upstox API error: HTTP " + response.status
-    );
+    throw new Error("Upstox API error: HTTP " + response.status);
   }
 
   return body;
@@ -230,7 +223,10 @@ async function getCandles() {
   const historicalUrl =
     "https://api.upstox.com/v3/historical-candle/" +
     encodeURIComponent(UNDERLYING) +
-    "/minutes/5/" + toDate + "/" + fromDate;
+    "/minutes/5/" +
+    toDate +
+    "/" +
+    fromDate;
 
   const intradayUrl =
     "https://api.upstox.com/v3/historical-candle/intraday/" +
@@ -293,10 +289,8 @@ async function getIndicators() {
 
   const latest = candles[candles.length - 1];
 
-  let signal = "WAIT";
-
-  // Signal is intentionally WAIT until verified
-  // futures VWAP and option-chain feed are available.
+  // Auto-entry remains disabled pending validation
+  const signal = "WAIT";
 
   return {
     status: "ok",
@@ -336,9 +330,9 @@ function getUpcomingExpiries(contracts) {
       )
       .filter(value =>
         typeof value === "string" &&
-        /^\d{4}-\d{2}-\d{2}$/.test(value)
+        /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+        value >= today
       )
-      .filter(value => value >= today)
   )].sort();
 }
 
@@ -351,6 +345,7 @@ async function getOptionChain(expiry) {
     encodeURIComponent(expiry);
 
   const result = await apiGet(url);
+
   return result.data || [];
 }
 
@@ -433,7 +428,7 @@ async function tradingCycle() {
 
   try {
     if (!TOKEN) {
-      throw new Error("Upstox access token missing");
+      throw new Error("UPSTOX_ACCESS_TOKEN is missing");
     }
 
     if (!marketOpen()) {
@@ -445,9 +440,7 @@ async function tradingCycle() {
     const indicators = await getIndicators();
     indicatorsCache = indicators;
 
-    // Automatic entry remains disabled until
-    // futures VWAP and option feed are verified.
-
+    // Automatic entries are disabled until validated
     if (indicators.signal === "WAIT") {
       cycleStatus = "Waiting for verified signal";
       cycleError = null;
@@ -459,7 +452,6 @@ async function tradingCycle() {
   } catch (error) {
     cycleStatus = "Error";
     cycleError = error.message;
-
     console.error("Trading cycle:", error.message);
 
   } finally {
@@ -574,12 +566,11 @@ app.get("/expiries", async (req, res) => {
   }
 });
 
-// OPTION CHAIN
+// FULL OPTION CHAIN
 app.get("/option-chain", async (req, res) => {
   try {
     let expiry = req.query.expiry;
 
-    // Automatically select nearest upcoming expiry
     if (!expiry) {
       const contracts = await getOptionContracts();
       const expiries = getUpcomingExpiries(contracts);
@@ -603,6 +594,93 @@ app.get("/option-chain", async (req, res) => {
     });
 
   } catch (error) {
+    res.status(502).json({
+      status: "error",
+      message: error.message
+    });
+  }
+});
+
+// ATM OPTION CHAIN - 21 CLOSEST STRIKES
+app.get("/atm-option-chain", async (req, res) => {
+  try {
+    let expiry = req.query.expiry;
+
+    // Automatically select nearest expiry
+    if (!expiry) {
+      const contracts = await getOptionContracts();
+      const expiries = getUpcomingExpiries(contracts);
+
+      expiry = expiries[0];
+
+      if (!expiry) {
+        return res.status(404).json({
+          status: "error",
+          message: "No upcoming expiry found"
+        });
+      }
+    }
+
+    const chain = await getOptionChain(expiry);
+
+    if (!chain || !chain.length) {
+      return res.status(404).json({
+        status: "error",
+        message: "Option chain data unavailable"
+      });
+    }
+
+    // Get spot price from option chain
+    const spotCandidates = chain
+      .map(row => Number(
+        row.underlying_spot_price ??
+        row.underlyingSpotPrice ??
+        row.underlying_spot
+      ))
+      .filter(v => Number.isFinite(v) && v > 0);
+
+    const spot = spotCandidates[0];
+
+    if (!spot) {
+      return res.status(502).json({
+        status: "error",
+        message: "NIFTY spot price missing from option chain response"
+      });
+    }
+
+    // Find nearest 21 strikes
+    const nearest = chain
+      .filter(row =>
+        Number.isFinite(Number(row.strike_price))
+      )
+      .sort((a, b) =>
+        Math.abs(Number(a.strike_price) - spot) -
+        Math.abs(Number(b.strike_price) - spot)
+      )
+      .slice(0, 21)
+      .sort((a, b) =>
+        Number(a.strike_price) - Number(b.strike_price)
+      );
+
+    const atmStrike = nearest.reduce((best, row) =>
+      Math.abs(Number(row.strike_price) - spot) <
+      Math.abs(Number(best.strike_price) - spot)
+        ? row
+        : best
+    ).strike_price;
+
+    res.json({
+      status: "ok",
+      expiry,
+      spot,
+      atmStrike,
+      count: nearest.length,
+      data: nearest
+    });
+
+  } catch (error) {
+    console.error("ATM option chain error:", error.message);
+
     res.status(502).json({
       status: "error",
       message: error.message
